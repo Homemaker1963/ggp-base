@@ -2,7 +2,7 @@
   (:import [org.ggp.base.player.gamer.statemachine StateMachineGamer]
            [org.ggp.base.util.statemachine.implementation.prover ProverStateMachine]))
 
-(defn Hype []
+(defn Playjure []
   (proxy [StateMachineGamer] []
     (getInitialStateMachine []
       (ProverStateMachine.))
@@ -17,10 +17,10 @@
         random-move))
 
     (stateMachineMetaGame [timeout]
-      (println "SampleClojureGamer metagame called"))
+      (println "Playjure metagame called"))
 
     (stateMachineAbort []
-      (println "SampleClojureGamer abort called"))
+      (println "Playjure abort called"))
 
     (stateMachineStop []
-      (println "SampleClojureGamer stop called"))))
+      (println "Playjure stop called"))))
