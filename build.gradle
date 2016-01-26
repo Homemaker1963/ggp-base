@@ -92,8 +92,12 @@ eclipse {
  */
 test {
     include 'org/ggp/base/test/AllTests.class'
-}
 
+    testLogging {
+        exceptionFormat = 'full'
+        showStandardStreams = 'true'
+    }
+}
 
 //Various applications that can be run from Gradle:
 
