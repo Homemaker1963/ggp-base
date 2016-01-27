@@ -13,7 +13,7 @@ public class PlayjureGamerTest extends Assert {
     public void testPlayjureGamer() {
         try {
             Gamer g = new PlayjureStub();
-            System.out.println("LOL");
+            System.out.println("TEST");
 
             assertEquals("Playjure", g.getName());
 
