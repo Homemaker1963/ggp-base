@@ -32,27 +32,43 @@
 (defn make-move [role state-machine current-state move]
   (.getNextState state-machine current-state [move]))
 
-(defn find-best-move [role state-machine current-state]
+
+(defn find-best-move [role state-machine current-state depth]
   (let [moves (get-moves role state-machine current-state)
-        results (map (fn [move]
-                       (dfs role state-machine
-                            (make-move role state-machine
-                                       current-state move)))
-                     moves)]
-    (apply max results)))
+        next-depth (dec depth)]
+    (loop [best -1
+           move (first moves)
+           remaining-moves (rest moves)]
+      (let [next-state (make-move role state-machine current-state move)
+            score (dfs role state-machine next-state next-depth)
+            new-best (max best score)]
+        (cond
+          (= score 100) 100
+          (empty? remaining-moves) new-best
+          :else (recur new-best
+                       (first remaining-moves)
+                       (rest remaining-moves)))))))
 
 
-(defn dfs [role state-machine current-state]
-  (if (is-terminal state-machine current-state) 
+(defn dfs [role state-machine current-state depth]
+  (cond
+    (is-terminal state-machine current-state) 
     (state-value role state-machine current-state)
-    (find-best-move role state-machine current-state)))
+
+    (zero? depth)
+    (do (println "lol") -1)
+
+    :else
+    (find-best-move role state-machine current-state depth)))
+
 
 (defn run-dfs [role state-machine current-state]
   (let [moves (get-moves role state-machine current-state)
         results (map (fn [move]
                        [(dfs role state-machine
                              (make-move role state-machine
-                                        current-state move)) move])
+                                        current-state move)
+                             4) move])
                      moves)]
     (->> results
       (sort (fn [[v1 _] [v2 _]]
@@ -62,7 +78,6 @@
 
 
 ; Actual Player ---------------------------------------------------------------
-
 (defn start-game [gamer timeout]
   (start-nrepl))
 
@@ -75,7 +90,6 @@
 
 (defn stop-game [gamer])
 (defn abort-game [gamer])
-
 
 (defn Playjure []
   (dosync

@@ -50,7 +50,7 @@
   (not a-light-off))
 
 (<= terminal
-  (true (turn 7)))
+  (true (turn 10)))
 
 ; }}}
 ; Goals {{{

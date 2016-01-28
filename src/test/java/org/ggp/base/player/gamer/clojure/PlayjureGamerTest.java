@@ -1,20 +1,20 @@
 package org.ggp.base.player.gamer.clojure;
 
+import java.util.Arrays;
+import java.util.List;
 import org.ggp.base.player.gamer.Gamer;
-import org.ggp.base.util.statemachine.MachineState;
 import org.ggp.base.player.gamer.clojure.stubs.PlayjureStub;
 import org.ggp.base.player.gamer.statemachine.StateMachineGamer;
 import org.ggp.base.util.game.LocalGameRepository;
 import org.ggp.base.util.gdl.grammar.GdlPool;
 import org.ggp.base.util.gdl.grammar.GdlTerm;
 import org.ggp.base.util.match.Match;
+import org.ggp.base.util.statemachine.MachineState;
 import org.ggp.base.util.statemachine.Move;
 import org.ggp.base.util.statemachine.StateMachine;
 import org.ggp.base.util.statemachine.implementation.prover.ProverStateMachine;
 import org.junit.Assert;
 import org.junit.Test;
-import java.util.List;
-import java.util.Arrays;
 
 public class PlayjureGamerTest extends Assert {
     @Test
@@ -60,3 +60,4 @@ public class PlayjureGamerTest extends Assert {
     }
 
 }
+
