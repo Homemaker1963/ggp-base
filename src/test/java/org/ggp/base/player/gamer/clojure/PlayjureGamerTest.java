@@ -26,10 +26,10 @@ public class PlayjureGamerTest extends Assert {
 
             LocalGameRepository repo = new LocalGameRepository();
             Match m = new Match("", -1, 1000, 1000,
-                                repo.getGame("lights"), "");
+                                repo.getGame("asteroids"), "");
 
             g.setMatch(m);
-            g.setRoleName(GdlPool.getConstant("you"));
+            g.setRoleName(GdlPool.getConstant("ship"));
             g.metaGame(1000);
 
             StateMachine stateMachine;
