@@ -58,23 +58,40 @@
 
 
 ; Actual Player ---------------------------------------------------------------
-(defn start-game [^StateMachineGamer gamer timeout]
+(defn iterative-deepening-dfs [start-node]
+  (loop [depth 1]
+    (println "Searching depth" depth)
+    (dfs-full start-node [] depth)
+    (let [[score _] @solution]
+      (when-not (pos? score)
+        (recur (inc depth))))))
+
+(defn start-game [^StateMachineGamer gamer end-time]
   (dosync (reset! solution [-1 []]))
   (let [start-node (->Node (.getRole gamer)
                            (.getStateMachine gamer)
-                           (.getCurrentState gamer))]
-    (loop [depth 1]
-      (dfs-full start-node [] depth)
-      (let [[score _] @solution]
-        (when-not (pos? score)
-          (recur (inc depth)))))))
+                           (.getCurrentState gamer))
+        worker (future (iterative-deepening-dfs start-node))
+        current-time (System/currentTimeMillis)
+        wait-ms (int (* 0.9 (- end-time current-time)))]
+    (deref worker wait-ms nil)
+    (future-cancel worker)))
+
+(defn pick-random-move [gamer]
+  (-> (->Node (.getRole gamer)
+              (.getStateMachine gamer)
+              (.getCurrentState gamer))
+    get-moves
+    rand-nth))
 
 (defn select-move [gamer timeout]
   (dosync
-    (let [[value path] @solution
-          [next-move & remaining-moves] path]
-      (reset! solution [value remaining-moves])
-      next-move)))
+    (let [[value path] @solution]
+      (if (empty? path)
+        (pick-random-move gamer)
+        (let [[next-move & remaining-moves] path]
+          (reset! solution [value remaining-moves])
+          next-move)))))
 
 (defn stop-game [gamer])
 (defn abort-game [gamer])

@@ -26,11 +26,10 @@ public class PlayjureGamerTest extends Assert {
 
             LocalGameRepository repo = new LocalGameRepository();
             Match m = new Match("", -1, 1000, 1000,
-                                repo.getGame("asteroids"), "");
+                                repo.getGame("pancakes"), "");
 
             g.setMatch(m);
-            g.setRoleName(GdlPool.getConstant("ship"));
-            g.metaGame(1000);
+            g.setRoleName(GdlPool.getConstant("flipper"));
 
             StateMachine stateMachine;
             MachineState currentState;
@@ -45,6 +44,7 @@ public class PlayjureGamerTest extends Assert {
             java.util.List<Move> moves;
             Move move;
 
+            g.metaGame(System.currentTimeMillis() + 2 * 1000);
             while (!stateMachine.isTerminal(currentState)) {
                 move = new Move(g.selectMove(1000));
                 System.out.println("Player chose " + move.toString());
