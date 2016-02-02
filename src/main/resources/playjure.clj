@@ -5,7 +5,9 @@
     [org.ggp.base.util.statemachine StateMachine MachineState]
     [org.ggp.base.player.gamer.statemachine StateMachineGamer]
     [org.ggp.base.util.statemachine.implementation.prover ProverStateMachine]
-    [org.ggp.base.util.statemachine.cache CachedStateMachine]))
+    [org.ggp.base.util.statemachine.cache CachedStateMachine]
+    [com.google.common.cache CacheBuilder]
+    [com.google.common.cache CacheLoader]))
 
 
 ; (set! *warn-on-reflection* true)
@@ -25,6 +27,25 @@
     new-solution
     old-solution))
 
+(defn thread-interrupted []
+  (.isInterrupted (Thread/currentThread)))
+
+
+; Guava Cache -----------------------------------------------------------------
+(defn fresh-cache []
+  (-> (CacheBuilder/newBuilder)
+    (.maximumSize 100000)
+    (.build (proxy [CacheLoader] []
+              ; TODO: this is ugly, fix it
+              (load [k] true)))))
+
+(defmacro when-not-cached [cache state & body]
+  `(let [cache# ~cache
+         state# ~state]
+     (when-not (.getIfPresent cache# state#)
+       (.put cache# state# true)
+       ~@body)))
+
 
 ; DFS -------------------------------------------------------------------------
 
@@ -41,30 +62,35 @@
   (.getNextState state-machine current-state [move]))
 
 
-(defn dfs-full [node path depth]
-  (cond
-    (Thread/interrupted) nil
-    (is-terminal node) (dosync (swap! solution swap-solution
-                                      [(state-value node) path]))
-    (zero? depth) nil
+(defn dfs-full [node path cache depth]
+  (when-not-cached
+    cache (:current-state node)
+    (cond
+      (thread-interrupted) nil
+      (is-terminal node) (dosync (swap! solution swap-solution
+                                        [(state-value node) path]))
+      (zero? depth) nil
 
-    :else
-    (dorun
-      (map (fn [move]
-             (dfs-full (assoc node :current-state (make-move node move))
-                       (conj path move)
-                       (dec depth)))
-           (get-moves node)))))
+      :else
+      (dorun
+        (map (fn [move]
+               (dfs-full (assoc node :current-state (make-move node move))
+                         (conj path move)
+                         cache
+                         (dec depth)))
+             (get-moves node))))))
 
 
 ; Actual Player ---------------------------------------------------------------
+
 (defn iterative-deepening-dfs [start-node]
   (loop [depth 1]
-    (println "Searching depth" depth)
-    (dfs-full start-node [] depth)
-    (let [[score _] @solution]
-      (when-not (pos? score)
-        (recur (inc depth))))))
+    (when-not (thread-interrupted)
+      (println "Searching depth" depth)
+      (dfs-full start-node [] (fresh-cache) depth)
+      (let [[score _] @solution]
+        (when-not (pos? score)
+          (recur (inc depth)))))))
 
 (defn start-game [^StateMachineGamer gamer end-time]
   (dosync (reset! solution [-1 []]))
@@ -104,7 +130,9 @@
                  (CachedStateMachine. (ProverStateMachine.)))
 
                (stateMachineSelectMove [timeout]
-                 (select-move this timeout))
+                 (let [move (select-move this timeout)]
+                   (println "Performing:" (str move))
+                   move))
 
                (stateMachineMetaGame [timeout]
                  (time (start-game this timeout)))
