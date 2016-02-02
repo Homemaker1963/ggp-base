@@ -34,7 +34,7 @@
 ; Guava Cache -----------------------------------------------------------------
 (defn fresh-cache []
   (-> (CacheBuilder/newBuilder)
-    (.maximumSize 100000)
+    (.maximumSize 1000000)
     (.build (proxy [CacheLoader] []
               ; TODO: this is ugly, fix it
               (load [k] true)))))
