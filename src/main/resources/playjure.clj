@@ -89,7 +89,7 @@
       (println "Searching depth" depth)
       (dfs-full start-node [] (fresh-cache) depth)
       (let [[score _] @solution]
-        (when-not (pos? score)
+        (when-not (= 100 score)
           (recur (inc depth)))))))
 
 (defn start-game [^StateMachineGamer gamer end-time]

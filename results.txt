@@ -1,0 +1,37 @@
+Results for five consecutive runs of each game, restarting the player JVM
+between games.  Later runs are faster because of the JIT.
+
+Buttons:
+       80 milliseconds
+       35 milliseconds
+       23 milliseconds
+       20 milliseconds
+       20 milliseconds
+
+Pancakes:
+     1644 milliseconds
+     1139 milliseconds
+     1011 milliseconds
+     1076 milliseconds
+     1043 milliseconds
+
+Asteroids:
+     2189 milliseconds
+     1762 milliseconds
+     1600 milliseconds
+     1589 milliseconds
+     1666 milliseconds
+
+Hanoi:
+     3368 milliseconds
+     2313 milliseconds
+     2437 milliseconds
+     2357 milliseconds
+     2454 milliseconds
+
+AI PS Rover Thing:
+    32554 milliseconds
+    14884 milliseconds
+    14934 milliseconds
+    14661 milliseconds
+    15398 milliseconds
