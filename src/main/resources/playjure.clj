@@ -99,7 +99,7 @@
                            (.getCurrentState gamer))
         worker (future (iterative-deepening-dfs start-node))
         current-time (System/currentTimeMillis)
-        wait-ms (int (* 0.9 (- end-time current-time)))]
+        wait-ms (int (- end-time current-time 1000))]
     (deref worker wait-ms nil)
     (future-cancel worker)))
 
