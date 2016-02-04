@@ -127,7 +127,6 @@
       (when (> time-left 1000)
         (when-not (or (done-searching)
                       (deref worker check-interval nil))
-          (Thread/sleep check-interval)
           (recur (- time-left check-interval)))))
     (future-cancel worker)))
 
