@@ -44,7 +44,7 @@ public class PlayjureGamerTest extends Assert {
             java.util.List<Move> moves;
             Move move;
 
-            g.metaGame(System.currentTimeMillis() + 2 * 1000);
+            g.metaGame(System.currentTimeMillis() + 10 * 1000);
             while (!stateMachine.isTerminal(currentState)) {
                 move = new Move(g.selectMove(1000));
                 System.out.println("Player chose " + move.toString());
