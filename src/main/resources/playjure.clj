@@ -77,7 +77,7 @@
   (.getNextState state-machine current-state [move]))
 
 
-(defn dfs-full [node path cache depth]
+(defn dfs-full [node path cache depth should-fork]
   (when-not-cached
     cache (:current-state node)
     (cond
@@ -88,12 +88,14 @@
 
       :else
       (dorun
-        (map (fn [move]
-               (dfs-full (assoc node :current-state (make-move node move))
-                         (conj path move)
-                         cache
-                         (dec depth)))
-             (get-moves node))))))
+        ((if should-fork pmap map)
+         (fn [move]
+           (dfs-full (assoc node :current-state (make-move node move))
+                     (conj path move)
+                     cache
+                     (dec depth)
+                     false))
+         (get-moves node))))))
 
 
 ; Actual Player ---------------------------------------------------------------
@@ -102,7 +104,7 @@
   (loop [depth 1]
     (when-not (thread-interrupted)
       (println "Searching depth" depth)
-      (dfs-full start-node [] (fresh-cache) depth)
+      (dfs-full start-node [] (fresh-cache) depth (< 3 depth))
       (let [[score _] @solution]
         (when-not (= 100 score)
           (recur (inc depth))))))
@@ -145,8 +147,12 @@
           (reset! solution [value remaining-moves])
           next-move)))))
 
-(defn stop-game [gamer])
-(defn abort-game [gamer])
+(defn stop-game [gamer]
+  (System/gc))
+
+(defn abort-game [gamer]
+  (System/gc))
+
 
 (defn Playjure []
   (dosync
