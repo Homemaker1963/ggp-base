@@ -20,6 +20,7 @@ dependencies {
         'lib/Jython/jython.jar',
         'lib/Clojure/clojure.jar',
         'lib/Clojure/nrepl.jar',
+        'lib/Clojure/claypoole-1.1.2.jar',
         'lib/Batik/batik-1.7.jar',
         'lib/FlyingSaucer/core-renderer.jar',
         'lib/javassist/javassist.jar',
