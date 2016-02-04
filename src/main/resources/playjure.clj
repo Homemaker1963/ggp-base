@@ -7,15 +7,17 @@
     [org.ggp.base.util.statemachine.implementation.prover ProverStateMachine]
     [org.ggp.base.util.statemachine.cache CachedStateMachine]
     [com.google.common.cache CacheBuilder]
+    [com.google.common.cache LoadingCache]
     [com.google.common.cache CacheLoader]))
 
 
-; (set! *warn-on-reflection* true)
+(set! *warn-on-reflection* true)
 (defonce nrepl-server
   (when (= "1" (System/getenv "NREPL"))
     (nrepl/start-server :port 7888)))
 
 (def current-gamer (ref nil))
+
 
 (defrecord Node [role state-machine current-state])
 
@@ -31,6 +33,7 @@
   (.isInterrupted (Thread/currentThread)))
 
 
+
 ; Guava Cache -----------------------------------------------------------------
 (defn fresh-cache []
   (-> (CacheBuilder/newBuilder)
@@ -39,8 +42,8 @@
               ; TODO: this is ugly, fix it
               (load [k] true)))))
 
-(defmacro when-not-cached [cache state & body]
-  `(let [cache# ~cache
+(defmacro when-not-cached [^LoadingCache cache state & body]
+  `(let [^LoadingCache cache# ~cache
          state# ~state]
      (when-not (.getIfPresent cache# state#)
        (.put cache# state# true)
@@ -49,16 +52,28 @@
 
 ; DFS -------------------------------------------------------------------------
 
-(defn is-terminal [{:keys [role state-machine current-state] :as node}]
+(defn is-terminal [{:keys [role
+                           ^CachedStateMachine state-machine
+                           current-state]
+                    :as node}]
   (.isTerminal state-machine current-state))
 
-(defn state-value [{:keys [role state-machine current-state] :as node}]
+(defn state-value [{:keys [role
+                           ^CachedStateMachine state-machine
+                           current-state]
+                    :as node}]
   (.getGoal state-machine current-state role))
 
-(defn get-moves [{:keys [role state-machine current-state] :as node}]
+(defn get-moves [{:keys [role
+                         ^CachedStateMachine state-machine
+                         current-state]
+                  :as node}]
   (.getLegalMoves state-machine current-state role))
 
-(defn make-move [{:keys [role state-machine current-state] :as node} move]
+(defn make-move [{:keys [role
+                         ^CachedStateMachine state-machine
+                         current-state]
+                  :as node} move]
   (.getNextState state-machine current-state [move]))
 
 
@@ -90,7 +105,14 @@
       (dfs-full start-node [] (fresh-cache) depth)
       (let [[score _] @solution]
         (when-not (= 100 score)
-          (recur (inc depth)))))))
+          (recur (inc depth))))))
+  true)
+
+(def check-interval 200)
+
+(defn done-searching []
+  (let [[score _] @solution]
+    (= score 100)))
 
 (defn start-game [^StateMachineGamer gamer end-time]
   (dosync (reset! solution [-1 []]))
@@ -98,12 +120,16 @@
                            (.getStateMachine gamer)
                            (.getCurrentState gamer))
         worker (future (iterative-deepening-dfs start-node))
-        current-time (System/currentTimeMillis)
-        wait-ms (int (- end-time current-time 1000))]
-    (deref worker wait-ms nil)
+        current-time (System/currentTimeMillis)]
+    (loop [time-left (int (- end-time current-time 1000))]
+      (when (> time-left 1000)
+        (when-not (or (done-searching)
+                      (deref worker check-interval nil))
+          (Thread/sleep check-interval)
+          (recur (- time-left check-interval)))))
     (future-cancel worker)))
 
-(defn pick-random-move [gamer]
+(defn pick-random-move [^StateMachineGamer gamer]
   (-> (->Node (.getRole gamer)
               (.getStateMachine gamer)
               (.getCurrentState gamer))
