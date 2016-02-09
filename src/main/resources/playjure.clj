@@ -13,12 +13,6 @@
 
 
 (set! *warn-on-reflection* true)
-(defonce nrepl-server
-  (when (= "1" (System/getenv "NREPL"))
-    (nrepl/start-server :port 7888)))
-
-
-(defrecord Node [role state-machine current-state])
 
 (def solution (atom nil))
 
@@ -28,28 +22,17 @@
     new-solution
     old-solution))
 
+
+; NREPL -----------------------------------------------------------------------
+(defonce nrepl-server
+  (when (= "1" (System/getenv "NREPL"))
+    (nrepl/start-server :port 7888)))
+
+
+; Java and GGP-Base Interop ---------------------------------------------------
 (defn thread-interrupted []
   (.isInterrupted (Thread/currentThread)))
 
-
-
-; Guava Cache -----------------------------------------------------------------
-(defn fresh-cache []
-  (-> (CacheBuilder/newBuilder)
-    (.maximumSize 10000)
-    (.build (proxy [CacheLoader] []
-              ; TODO: this is ugly, fix it
-              (load [k] true)))))
-
-(defmacro when-not-cached [^LoadingCache cache state & body]
-  `(let [^LoadingCache cache# ~cache
-         state# ~state]
-     (when-not (.getIfPresent cache# state#)
-       (.put cache# state# true)
-       ~@body)))
-
-
-; DFS -------------------------------------------------------------------------
 
 (defn is-terminal [{:keys [role
                            ^CachedStateMachine state-machine
@@ -69,12 +52,48 @@
                   :as node}]
   (.getLegalMoves state-machine current-state role))
 
+(defn get-roles [{:keys [^CachedStateMachine state-machine]
+                  :as node}]
+  (.getRoles state-machine))
+
 (defn make-move [{:keys [role
                          ^CachedStateMachine state-machine
                          current-state]
                   :as node} move]
   (.getNextState state-machine current-state [move]))
 
+(defn pick-random-move [^StateMachineGamer gamer]
+  (rand-nth (.getLegalMoves (.getStateMachine gamer)
+                            (.getCurrentState gamer)
+                            (.getRole gamer))))
+
+
+; Guava Cache -----------------------------------------------------------------
+(defn fresh-cache []
+  (-> (CacheBuilder/newBuilder)
+    (.maximumSize 10000)
+    (.build
+      (proxy [CacheLoader] []
+        (load [k]
+          (throw (Exception. "Use .getIfPresent/.put directly.")))))))
+
+(defmacro when-not-cached [^LoadingCache cache state & body]
+  `(let [^LoadingCache cache# ~cache
+         state# ~state]
+     (when-not (.getIfPresent cache# state#)
+       (.put cache# state# true)
+       ~@body)))
+
+
+; Single Player ---------------------------------------------------------------
+;
+; Single-player games use iterative deepening DFS to try to find a solution
+; during the "metagaming" warm-up period.
+
+(def check-interval 200)
+(def response-cutoff 1500)
+
+(defrecord DfsNode [role state-machine current-state])
 
 (defn dfs-full [node path cache depth threadpool]
   (when-not-cached
@@ -96,9 +115,6 @@
                      nil))
          (get-moves node))))))
 
-
-; Actual Player ---------------------------------------------------------------
-
 (defn iterative-deepening-dfs [start-node threadpool]
   (loop [depth 1]
     (when-not (thread-interrupted)
@@ -109,39 +125,27 @@
           (recur (inc depth))))))
   true)
 
-(def check-interval 200)
-(def response-cutoff 1500)
 
-(defn done-searching []
-  (let [[score _] @solution]
-    (= score 100)))
-
-(defn time-left [end-time]
-  (- end-time (System/currentTimeMillis)))
-
-
-(defn start-game [^StateMachineGamer gamer end-time]
+(defn single-player-start-game [^StateMachineGamer gamer end-time]
   (dosync (reset! solution [-1 []]))
-  (clay/with-shutdown! [threadpool (clay/threadpool (clay/ncpus))]
-    (let [start-node (->Node (.getRole gamer)
-                             (.getStateMachine gamer)
-                             (.getCurrentState gamer))
-          worker (future (iterative-deepening-dfs start-node threadpool))]
-      (loop []
-        (when (and (> (time-left end-time) response-cutoff)
-                   (not (done-searching))
-                   (nil? (deref worker check-interval nil)))
-          (recur)))
-      (future-cancel worker))))
+  (letfn [(time-left [end-time]
+            (- end-time (System/currentTimeMillis)))
+          (done-searching []
+            (let [[score _] @solution]
+              (= score 100)))]
+    (clay/with-shutdown! [threadpool (clay/threadpool (clay/ncpus))]
+      (let [start-node (->DfsNode (.getRole gamer)
+                                  (.getStateMachine gamer)
+                                  (.getCurrentState gamer))
+            worker (future (iterative-deepening-dfs start-node threadpool))]
+        (loop []
+          (when (and (> (time-left end-time) response-cutoff)
+                     (not (done-searching))
+                     (nil? (deref worker check-interval nil)))
+            (recur)))
+        (future-cancel worker)))))
 
-(defn pick-random-move [^StateMachineGamer gamer]
-  (-> (->Node (.getRole gamer)
-              (.getStateMachine gamer)
-              (.getCurrentState gamer))
-    get-moves
-    rand-nth))
-
-(defn select-move [gamer timeout]
+(defn single-player-select-move [gamer timeout]
   (dosync
     (let [[value path] @solution]
       (if (empty? path)
@@ -150,10 +154,29 @@
           (reset! solution [value remaining-moves])
           next-move)))))
 
-(defn stop-game [gamer]
+
+; GGP Player Implementation ---------------------------------------------------
+
+(defmacro if-single-player [gamer then else]
+  `(if (= 1 (count (-> ~gamer .getStateMachine .getRoles)))
+     ~then
+     ~else))
+
+
+(defn start-game [^StateMachineGamer gamer timeout]
+  (if-single-player gamer
+    (single-player-start-game gamer timeout)
+    nil))
+
+(defn select-move [^StateMachineGamer gamer timeout]
+  (if-single-player gamer
+    (single-player-select-move gamer timeout)
+    nil))
+
+(defn stop-game [^StateMachineGamer gamer]
   (System/gc))
 
-(defn abort-game [gamer]
+(defn abort-game [^StateMachineGamer gamer]
   (System/gc))
 
 
@@ -168,6 +191,7 @@
         move))
 
     (stateMachineMetaGame [timeout]
+      (println "Starting metagame time...")
       (time (start-game this timeout)))
 
     (stateMachineAbort []
@@ -176,3 +200,5 @@
     (stateMachineStop []
       (stop-game this))))
 
+
+; vim: lispwords+=if-single-player,when-not-cached
