@@ -23,6 +23,16 @@
     old-solution))
 
 
+(defn future-cancel-sanely [f]
+  (if (future-done? f)
+    ; If the future was already done, it might have silently thrown an
+    ; exception.  We can deref it here to rethrow the exception in the current
+    ; thread so we can see what went wrong.  Clojure is a joke.
+    @f
+    ; Otherwise just cancel it.
+    (future-cancel f)))
+
+
 ; NREPL -----------------------------------------------------------------------
 (defonce nrepl-server
   (when (= "1" (System/getenv "NREPL"))
@@ -40,10 +50,12 @@
                     :as node}]
   (.isTerminal state-machine current-state))
 
-(defn state-value [{:keys [role
-                           ^CachedStateMachine state-machine
-                           current-state]
-                    :as node}]
+(defn state-value
+  "Get the value of the current state"
+  [{:keys [role
+           ^CachedStateMachine state-machine
+           current-state]
+    :as node}]
   (.getGoal state-machine current-state role))
 
 (defn get-moves [{:keys [role
@@ -155,8 +167,124 @@
           next-move)))))
 
 
-; GGP Player Implementation ---------------------------------------------------
+; Multiple Player -------------------------------------------------------------
+;
+; Multiple-player games use minimax search when searching moves.
+(def next-move (atom nil))
+(def original-roles (atom nil))
+(def our-role (atom nil))
+(def all-roles (atom nil))
+(def need-more-iterations (atom nil))
+(def finished-searching (atom nil))
+(def minimax-bottom-value 1)
 
+(defn create-joint-move [choices]
+  (map choices @original-roles))
+
+
+(declare minimax-search)
+(defn minimax-turn [state-machine current-state choices turn-roles depth]
+  (cond
+    (thread-interrupted)
+    [-1 nil]
+
+    (empty? turn-roles)
+    (minimax-search state-machine
+                    (.getNextState state-machine
+                                   current-state
+                                   (create-joint-move choices))
+                    depth)
+
+    :else
+    (let [[[role eval-fn] & remaining-roles] turn-roles
+          moves (.getLegalMoves state-machine current-state role)
+          make-move (fn [move]
+                      (let [[value _] (minimax-turn state-machine
+                                                    current-state
+                                                    (assoc choices role move)
+                                                    remaining-roles
+                                                    depth)]
+                        [value move]))
+          results (map make-move moves)]
+      (eval-fn results))))
+
+(defn minimax-search [state-machine current-state depth]
+  (cond
+    (.isTerminal state-machine current-state)
+    [(.getGoal state-machine current-state @our-role) nil]
+
+    (zero? depth)
+    (do
+      (reset! need-more-iterations true)
+      [minimax-bottom-value nil])
+
+    :else
+    (minimax-turn state-machine
+                  current-state
+                  {}
+                  @all-roles
+                  (dec depth))))
+
+(defn iterate-minimax [state-machine starting-state]
+  (loop [depth 1]
+    (if-not (thread-interrupted)
+      (do
+        (println "Searching depth" depth)
+        (reset! need-more-iterations false)
+        (let [[score move] (minimax-search state-machine starting-state depth)]
+          (if-not (thread-interrupted)
+            (do
+              (dosync (reset! next-move move))
+              (println "    Best so far:" move score))))
+        (if @need-more-iterations
+          (recur (inc depth))
+          (do
+            (reset! finished-searching true)
+            (println "Finished searching the entire tree, we're done here.")))))))
+
+
+(defn eval-max [results]
+  (first (sort-by first > results)))
+
+(defn eval-min [results]
+  (first (sort-by first < results)))
+
+
+(defn get-minimax-roles [gamer]
+  (let [roles (-> gamer .getStateMachine .getRoles)
+        our-role (.getRole gamer)
+        other-roles (remove #(= our-role %) roles)]
+    (into [[our-role eval-max]]
+          (map #(vector % eval-min) other-roles))))
+
+
+(defn multi-player-start-game [^StateMachineGamer gamer end-time]
+  (reset! our-role (.getRole gamer))
+  (reset! original-roles (-> gamer .getStateMachine .getRoles))
+  (reset! all-roles (get-minimax-roles gamer)))
+
+(defn multi-player-select-move [gamer end-time]
+  (reset! next-move nil)
+  (reset! finished-searching false)
+  (letfn [(time-left [end-time]
+            (- end-time (System/currentTimeMillis)))
+          (wait-til-done []
+            (when (and (> (time-left end-time) response-cutoff)
+                       (not @finished-searching))
+              (Thread/sleep check-interval)
+              (recur)))]
+    (let [state-machine (.getStateMachine gamer)
+          starting-state (.getCurrentState gamer)
+          our-moves (.getLegalMoves state-machine starting-state @our-role)]
+      (if (= 1 (count our-moves))
+        (first our-moves) ; If we only have one move, just take it.
+        (let [worker (future (iterate-minimax state-machine starting-state))]
+          (wait-til-done)
+          (future-cancel-sanely worker)
+          @next-move)))))
+
+
+; GGP Player Implementation ---------------------------------------------------
 (defmacro if-single-player [gamer then else]
   `(if (= 1 (count (-> ~gamer .getStateMachine .getRoles)))
      ~then
@@ -164,14 +292,41 @@
 
 
 (defn start-game [^StateMachineGamer gamer timeout]
+  (println "
+
+                    _===__
+                   //-==;=_~
+                  ||('   ~)      ___      __ __ __------_
+             __----\\|    _-_____////     --__---         -_
+            / _----_---_==__   |_|     __=-                \\
+           / |  _______     ----_    -=__                  |
+           |  \\_/      -----___| |       =-_              _/
+           |           \\ \\     \\\\\\\\      __ ---__       _ -
+           |            \\ /     ^^^         ---  -------
+            \\_         _|-
+             \\_________/         A challenger appears!
+           _/   -----  -_.
+          /_/|  || ||   _/--__
+          /  |_      _-       --_
+         /     ------            |
+        /      __------____/     |
+       |      /           /     /
+     /      /            |     |
+    (     /              |____|
+    /\\__/                 |  |
+   (  /                  |  /-__
+   \\  |                  (______)
+    \\\\\\)
+           ")
   (if-single-player gamer
     (single-player-start-game gamer timeout)
-    nil))
+    (multi-player-start-game gamer timeout)))
 
 (defn select-move [^StateMachineGamer gamer timeout]
+  (println "\nSelecting a move...")
   (if-single-player gamer
     (single-player-select-move gamer timeout)
-    nil))
+    (multi-player-select-move gamer timeout)))
 
 (defn stop-game [^StateMachineGamer gamer]
   (System/gc))
