@@ -17,7 +17,7 @@
 
 (defn use-cached-if-possible [^LoadingCache cache state depth body]
   (let [cached (.getIfPresent cache state)]
-    (if (or (not cached)
+    (if (or true (not cached)
             (> depth (third cached)))
        (force body)
        cached)))
@@ -38,34 +38,54 @@
 
 
 (declare minimax-search)
+(declare minimax-turn)
 
-(defn minimax-turn [state-machine current-state choices turn-roles depth]
+(defn process-moves [moves make-move
+                     [check-bounds update-best update-bounds :as role-info]
+                     initial-bounds]
+  (loop [move (first moves)
+         moves (rest moves)
+         best nil
+         bounds initial-bounds]
+    (if (not move)
+      best
+      (let [[score move child-depth :as result] (make-move move bounds)]
+        (if (not (check-bounds score bounds))
+          [score move child-depth]
+          (let [new-best (update-best result best)
+                new-bounds (update-bounds bounds new-best)]
+            (recur (first moves)
+                   (rest moves)
+                   new-best
+                   new-bounds)))))))
+
+(defn minimax-turn [state-machine current-state choices turn-roles depth bounds]
   (cond
     (thread-interrupted)
     [minimax-bottom-value nil nil]
 
     (empty? turn-roles)
     (minimax-search state-machine
-                    (.getNextState state-machine
-                                   current-state
+                    (.getNextState state-machine current-state
                                    (create-joint-move choices))
-                    depth)
+                    depth
+                    bounds)
 
     :else
-    (let [[[role eval-fn] & remaining-roles] turn-roles
+    (let [[[role & role-info] & remaining-roles] turn-roles
           moves (.getLegalMoves state-machine current-state role)
-          make-move (fn [move]
+          make-move (fn [move bounds]
                       (let [[value _ child-depth]
                             (minimax-turn state-machine
                                           current-state
                                           (assoc choices role move)
                                           remaining-roles
-                                          depth)]
-                        [value move child-depth]))
-          results (map make-move moves)]
-      (eval-fn results))))
+                                          depth
+                                          bounds)]
+                        [value move child-depth]))]
+      (process-moves moves make-move role-info bounds))))
 
-(defn minimax-search [state-machine current-state depth]
+(defn minimax-search [state-machine current-state depth bounds]
   (use-cached-if-possible
     @cache current-state depth
     (delay
@@ -86,7 +106,8 @@
                                                      current-state
                                                      {}
                                                      @all-roles
-                                                     (dec depth))
+                                                     (dec depth)
+                                                     bounds)
               our-depth (safe-inc child-depth)]
           (when our-depth
             (.put @cache current-state [score move our-depth]))
@@ -101,7 +122,8 @@
         (reset! need-more-iterations false)
         (let [[score move] (minimax-search state-machine
                                            starting-state
-                                           depth)]
+                                           depth
+                                           [-infinity infinity])]
           (if-not (thread-interrupted)
             (do
               (dosync (reset! next-move [score move]))
@@ -116,23 +138,45 @@
             (reset! finished-searching true)
             (println "Finished searching the entire tree, we're done here.")))))))
 
-(defn eval-results [sort-fn results]
-  (let [[best-score best-move _] (first (sort-by first sort-fn results))
-        child-depths (map third results)
-        effective-depth (when-not (some nil? child-depths)
-                          (first (sort-by identity < child-depths)))]
-    [best-score best-move effective-depth]))
 
-(def eval-max (partial eval-results >))
-(def eval-min (partial eval-results <))
+(defn check-bounds-max
+  "Returns true if the score is within the bounds."
+  [score [_ best-max]]
+  (< score best-max))
+
+(defn check-bounds-min
+  "Returns true if the score is within the bounds."
+  [score [best-min]]
+  (> score best-min))
+
+(defn update-best-max [[new-score :as new-result] [old-score :as old-result]]
+  (cond
+    (nil? old-result) new-result
+    (> new-score old-score) new-result
+    :else old-result))
+
+(defn update-best-min [[new-score :as new-result] [old-score :as old-result]]
+  (cond
+    (nil? old-result) new-result
+    (< new-score old-score) new-result
+    :else old-result))
+
+(defn update-bounds-max [[min-bound max-bound] [score & _]]
+  [(max score min-bound)
+   max-bound])
+
+(defn update-bounds-min [[min-bound max-bound] [score & _]]
+  [min-bound
+   (min score max-bound)])
 
 
 (defn get-minimax-roles [gamer]
   (let [roles (-> gamer .getStateMachine .getRoles)
         our-role (.getRole gamer)
         other-roles (remove #(= our-role %) roles)]
-    (into [[our-role eval-max]]
-          (map #(vector % eval-min) other-roles))))
+    (into [[our-role check-bounds-max update-best-max update-bounds-max]]
+          (map #(vector % check-bounds-min update-best-min update-bounds-min)
+               other-roles))))
 
 
 (defn select-move [gamer end-time]
@@ -153,10 +197,12 @@
       (future-cancel-sanely worker)
       (second @next-move))))
 
+
 (defn start-game [^StateMachineGamer gamer end-time]
   (reset! cache (fresh-cache))
   (reset! our-role (.getRole gamer))
   (reset! original-roles (-> gamer .getStateMachine .getRoles))
   (reset! all-roles (get-minimax-roles gamer))
-  (select-move gamer end-time))
+  ; (select-move gamer end-time)
+  )
 

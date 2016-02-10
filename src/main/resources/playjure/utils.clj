@@ -29,6 +29,7 @@
 
 
 (def infinity Long/MAX_VALUE)
+(def -infinity Long/MIN_VALUE)
 
 (defn third [coll]
   (nth coll 2))
