@@ -19,12 +19,16 @@
 (defn thread-interrupted []
   (.isInterrupted (Thread/currentThread)))
 
-; Guava Cache -----------------------------------------------------------------
 (defn fresh-cache []
   (-> (CacheBuilder/newBuilder)
-    (.maximumSize 10000)
+    (.maximumSize 1000000)
     (.build
       (proxy [CacheLoader] []
         (load [k]
           (throw (Exception. "Use .getIfPresent/.put directly.")))))))
 
+
+(def infinity Long/MAX_VALUE)
+
+(defn third [coll]
+  (nth coll 2))

@@ -5,81 +5,93 @@
     [com.google.common.cache LoadingCache]))
 
 
-(defmacro use-cached-if-possible [^LoadingCache cache state & body]
-  `(let [^LoadingCache cache# ~cache]
-     (if-let [cached# (.getIfPresent cache# ~state)]
-       cached#
-       (do ~@body))))
-
-(defmacro write-through-cache [^LoadingCache cache state & body]
-  `(let [^LoadingCache cache# ~cache
-         result# (do ~@body)]
-     (.put cache# ~state result#)
-     result#))
-
-
 (def next-move (atom nil))
 (def original-roles (atom nil))
 (def our-role (atom nil))
 (def all-roles (atom nil))
 (def need-more-iterations (atom nil))
 (def finished-searching (atom nil))
+(def cache (atom nil))
+
 (def minimax-bottom-value 1)
 
+(defn use-cached-if-possible [^LoadingCache cache state depth body]
+  (let [cached (.getIfPresent cache state)]
+    (if (or (not cached)
+            (> depth (third cached)))
+       (force body)
+       cached)))
+
+(defn write-through-cache [^LoadingCache cache state value]
+  (.put cache state value)
+  value)
+
+
+(defn safe-inc [n]
+  (cond
+    (nil? n) nil
+    (= infinity n) infinity
+    :else (inc n)))
 
 (defn create-joint-move [choices]
   (map choices @original-roles))
 
 
 (declare minimax-search)
-(defn minimax-turn [state-machine current-state choices turn-roles depth cache]
+
+(defn minimax-turn [state-machine current-state choices turn-roles depth]
   (cond
     (thread-interrupted)
-    [-1 nil]
+    [minimax-bottom-value nil nil]
 
     (empty? turn-roles)
     (minimax-search state-machine
                     (.getNextState state-machine
                                    current-state
                                    (create-joint-move choices))
-                    depth
-                    cache)
+                    depth)
 
     :else
     (let [[[role eval-fn] & remaining-roles] turn-roles
           moves (.getLegalMoves state-machine current-state role)
           make-move (fn [move]
-                      (let [[value _] (minimax-turn state-machine
-                                                    current-state
-                                                    (assoc choices role move)
-                                                    remaining-roles
-                                                    depth
-                                                    cache)]
-                        [value move]))
+                      (let [[value _ child-depth]
+                            (minimax-turn state-machine
+                                          current-state
+                                          (assoc choices role move)
+                                          remaining-roles
+                                          depth)]
+                        [value move child-depth]))
           results (map make-move moves)]
       (eval-fn results))))
 
-(defn minimax-search [state-machine current-state depth cache]
+(defn minimax-search [state-machine current-state depth]
   (use-cached-if-possible
-    cache current-state
-    (cond
-      (.isTerminal state-machine current-state)
-      [(.getGoal state-machine current-state @our-role) nil]
+    @cache current-state depth
+    (delay
+      (cond
+        (.isTerminal state-machine current-state)
+        (let [score (.getGoal state-machine current-state @our-role)]
+          (.put @cache current-state [score nil infinity])
+          [score nil infinity])
 
-      (zero? depth)
-      (do
-        (reset! need-more-iterations true)
-        [minimax-bottom-value nil])
+        (zero? depth)
+        (let [score minimax-bottom-value]
+          (reset! need-more-iterations true)
+          (.put @cache current-state [score nil 0])
+          [score nil 0])
 
-      :else
-      (write-through-cache
-        cache current-state
-        (minimax-turn state-machine
-                      current-state
-                      {}
-                      @all-roles
-                      (dec depth)
-                      cache)))))
+        :else
+        (let [[score move child-depth] (minimax-turn state-machine
+                                                     current-state
+                                                     {}
+                                                     @all-roles
+                                                     (dec depth))
+              our-depth (safe-inc child-depth)]
+          (when our-depth
+            (.put @cache current-state [score move our-depth]))
+          [score move our-depth])))))
+
 
 (defn iterate-minimax [state-machine starting-state]
   (loop [depth 1]
@@ -89,8 +101,7 @@
         (reset! need-more-iterations false)
         (let [[score move] (minimax-search state-machine
                                            starting-state
-                                           depth
-                                           (fresh-cache))]
+                                           depth)]
           (if-not (thread-interrupted)
             (do
               (dosync (reset! next-move [score move]))
@@ -105,12 +116,15 @@
             (reset! finished-searching true)
             (println "Finished searching the entire tree, we're done here.")))))))
 
+(defn eval-results [sort-fn results]
+  (let [[best-score best-move _] (first (sort-by first sort-fn results))
+        child-depths (map third results)
+        effective-depth (when-not (some nil? child-depths)
+                          (first (sort-by identity < child-depths)))]
+    [best-score best-move effective-depth]))
 
-(defn eval-max [results]
-  (first (sort-by first > results)))
-
-(defn eval-min [results]
-  (first (sort-by first < results)))
+(def eval-max (partial eval-results >))
+(def eval-min (partial eval-results <))
 
 
 (defn get-minimax-roles [gamer]
@@ -120,11 +134,6 @@
     (into [[our-role eval-max]]
           (map #(vector % eval-min) other-roles))))
 
-
-(defn start-game [^StateMachineGamer gamer end-time]
-  (reset! our-role (.getRole gamer))
-  (reset! original-roles (-> gamer .getStateMachine .getRoles))
-  (reset! all-roles (get-minimax-roles gamer)))
 
 (defn select-move [gamer end-time]
   (reset! next-move nil)
@@ -138,11 +147,16 @@
               (recur)))]
     (let [state-machine (.getStateMachine gamer)
           starting-state (.getCurrentState gamer)
-          our-moves (.getLegalMoves state-machine starting-state @our-role)]
-      (if (= 1 (count our-moves))
-        (first our-moves) ; If we only have one move, just take it.
-        (let [worker (future (iterate-minimax state-machine starting-state))]
-          (wait-til-done)
-          (future-cancel-sanely worker)
-          (second @next-move))))))
+          our-moves (.getLegalMoves state-machine starting-state @our-role)
+          worker (future (iterate-minimax state-machine starting-state))]
+      (wait-til-done)
+      (future-cancel-sanely worker)
+      (second @next-move))))
+
+(defn start-game [^StateMachineGamer gamer end-time]
+  (reset! cache (fresh-cache))
+  (reset! our-role (.getRole gamer))
+  (reset! original-roles (-> gamer .getStateMachine .getRoles))
+  (reset! all-roles (get-minimax-roles gamer))
+  (select-move gamer end-time))
 
