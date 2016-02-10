@@ -15,16 +15,15 @@
 
 (def minimax-bottom-value 1)
 
-(defn use-cached-if-possible [^LoadingCache cache state depth body]
-  (let [cached (.getIfPresent cache state)]
-    (if (or true (not cached)
-            (> depth (third cached)))
+(defn use-cached-if-possible [^LoadingCache cache state depth bound body]
+  (let [[cache-score cache-move cache-depth cache-exact :as cached]
+        (.getIfPresent cache state)]
+    (if (or (not cached)
+            (> depth cache-depth)
+            (and (not cache-exact)
+                 (> bound cache-score)))
        (force body)
        cached)))
-
-(defn write-through-cache [^LoadingCache cache state value]
-  (.put cache state value)
-  value)
 
 
 (defn safe-inc [n]
@@ -51,7 +50,7 @@
       best
       (let [[score move child-depth :as result] (make-move move bounds)]
         (if (not (check-bounds score bounds))
-          [score move child-depth]
+          [score move child-depth false]
           (let [new-best (update-best result best)
                 new-bounds (update-bounds bounds new-best)]
             (recur (first moves)
@@ -62,7 +61,7 @@
 (defn minimax-turn [state-machine current-state choices turn-roles depth bounds]
   (cond
     (thread-interrupted)
-    [minimax-bottom-value nil nil]
+    [minimax-bottom-value nil nil nil]
 
     (empty? turn-roles)
     (minimax-search state-machine
@@ -85,32 +84,33 @@
                         [value move child-depth]))]
       (process-moves moves make-move role-info bounds))))
 
-(defn minimax-search [state-machine current-state depth bounds]
+(defn minimax-search [state-machine current-state depth
+                      [_ max-bound :as bounds]]
   (use-cached-if-possible
-    @cache current-state depth
+    @cache current-state depth max-bound
     (delay
       (cond
         (.isTerminal state-machine current-state)
         (let [score (.getGoal state-machine current-state @our-role)]
-          (.put @cache current-state [score nil infinity])
+          (.put @cache current-state [score nil infinity true])
           [score nil infinity])
 
         (zero? depth)
         (let [score minimax-bottom-value]
           (reset! need-more-iterations true)
-          (.put @cache current-state [score nil 0])
+          (.put @cache current-state [score nil 0 true])
           [score nil 0])
 
         :else
-        (let [[score move child-depth] (minimax-turn state-machine
-                                                     current-state
-                                                     {}
-                                                     @all-roles
-                                                     (dec depth)
-                                                     bounds)
+        (let [[score move child-depth exact] (minimax-turn state-machine
+                                                           current-state
+                                                           {}
+                                                           @all-roles
+                                                           (dec depth)
+                                                           bounds)
               our-depth (safe-inc child-depth)]
           (when our-depth
-            (.put @cache current-state [score move our-depth]))
+            (.put @cache current-state [score move our-depth exact]))
           [score move our-depth])))))
 
 
@@ -203,6 +203,6 @@
   (reset! our-role (.getRole gamer))
   (reset! original-roles (-> gamer .getStateMachine .getRoles))
   (reset! all-roles (get-minimax-roles gamer))
-  ; (select-move gamer end-time)
+  (select-move gamer end-time)
   )
 
