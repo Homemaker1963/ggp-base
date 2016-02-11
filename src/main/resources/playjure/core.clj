@@ -51,9 +51,11 @@
     (minimax/select-move gamer timeout)))
 
 (defn stop-game [^StateMachineGamer gamer]
+  (println "Game stopping, suggesting GC...")
   (System/gc))
 
 (defn abort-game [^StateMachineGamer gamer]
+  (println "Game aborted, suggesting GC...")
   (System/gc))
 
 
@@ -64,7 +66,6 @@
 
     (stateMachineSelectMove [timeout]
       (let [move (select-move this timeout)]
-        (println "Performing:" (str move))
         move))
 
     (stateMachineMetaGame [timeout]

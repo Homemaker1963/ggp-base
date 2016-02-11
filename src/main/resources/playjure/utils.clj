@@ -21,7 +21,7 @@
 
 (defn fresh-cache []
   (-> (CacheBuilder/newBuilder)
-    (.maximumSize 1000000)
+    (.maximumSize 200000)
     (.build
       (proxy [CacheLoader] []
         (load [k]

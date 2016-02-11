@@ -1,63 +1,9 @@
-Results for ten consecutive runs of each game (scrambled), restarting the player
-JVM between games.  Later runs are faster because of the JIT.
+Results for the alpha/beta + minimax + transposition tables:
 
-Buttons:
-   95 milliseconds
-   33 milliseconds
-   25 milliseconds
-   19 milliseconds
-   15 milliseconds
-   13 milliseconds
-   15 milliseconds
-   11 milliseconds
-   16 milliseconds
-   13 milliseconds
+  tic tac toe: ~ 1   second
+        nim 2: ~ 0.9 seconds
+pawn to queen: ~44   seconds
 
-Pancakes:
- 1037 milliseconds
-  452 milliseconds
-  447 milliseconds
-  383 milliseconds
-  204 milliseconds
-  295 milliseconds
-  203 milliseconds
-  146 milliseconds
-  392 milliseconds
-  127 milliseconds
-
-Asteroids:
- 2063 milliseconds
-  408 milliseconds
-  464 milliseconds
-  356 milliseconds
-  337 milliseconds
-  401 milliseconds
-  341 milliseconds
-  340 milliseconds
-  205 milliseconds
-  405 milliseconds
-
-Hanoi:
- 1824 milliseconds
-  527 milliseconds
-  494 milliseconds
-  426 milliseconds
-  572 milliseconds
-  532 milliseconds
-  442 milliseconds
-  424 milliseconds
-  423 milliseconds
-  538 milliseconds
-
-
-AI PS Rover Thing:
- 8676 milliseconds
- 4783 milliseconds
- 3050 milliseconds
- 3660 milliseconds
- 3460 milliseconds
- 2442 milliseconds
- 3268 milliseconds
- 4555 milliseconds
- 4871 milliseconds
- 3853 milliseconds
+There's still a bug somewhere where it doesn't prune correctly, or selects
+a move incorrectly, or something similar.  We're not sure exactly what the
+problem is, and it's pretty rare.

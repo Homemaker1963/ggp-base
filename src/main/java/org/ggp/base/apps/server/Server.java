@@ -247,7 +247,7 @@ public final class Server extends JPanel implements ActionListener
                 synchronized (scheduler) {
                     for (int i = 0; i < (Integer)repetitionsSpinner.getValue(); i++) {
                         scheduler.addPendingMatch(new PendingMatch("Base", theGame, new ArrayList<PlayerPresence>(thePlayers), -1, startClock, playClock, shouldScramble.isSelected(), shouldQueue.isSelected(), shouldDetail.isSelected(), shouldSave.isSelected(), shouldPublish.isSelected()));
-                        thePlayers.add(thePlayers.remove(0));  // rotate player roster for repeated matches
+                        // thePlayers.add(thePlayers.remove(0));  // rotate player roster for repeated matches
                         try {
                             Thread.sleep(10);
                         } catch (InterruptedException ie) {
