@@ -1,6 +1,7 @@
 (ns playjure.strategies.depth-first-search
   (:require [com.climate.claypoole :as clay]
-            [playjure.utils :refer :all])
+            [playjure.utils :refer :all]
+            [playjure.heuristics :as heur])
   (:import
     [org.ggp.base.player.gamer.statemachine StateMachineGamer]
     [org.ggp.base.util.statemachine.cache CachedStateMachine]
@@ -8,6 +9,7 @@
 
 
 (def solution (atom nil))
+(def heuristic (atom nil))
 
 (defrecord DfsNode [role state-machine current-state])
 
@@ -94,7 +96,8 @@
 
 
 (defn start-game [^StateMachineGamer gamer end-time]
-  (dosync (reset! solution [-1 []]))
+  (reset! solution [-1 []])
+  (reset! heuristic heur/static)
   (letfn [(time-left [end-time]
             (- end-time (System/currentTimeMillis)))
           (done-searching []

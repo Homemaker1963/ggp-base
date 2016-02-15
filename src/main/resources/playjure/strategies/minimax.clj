@@ -1,5 +1,6 @@
 (ns playjure.strategies.minimax
   (:require [playjure.utils :refer :all]
+            [playjure.heuristics :as heur]
             [slingshot.slingshot :refer [try+ throw+]])
   (:import
     [org.ggp.base.player.gamer.statemachine StateMachineGamer]
@@ -14,8 +15,7 @@
 (def cache (atom nil))
 (def cache-hits (atom nil))
 (def previous-expected-value (atom nil))
-
-(def minimax-bottom-value 1)
+(def heuristic (atom nil))
 
 (defn safe-inc [n]
   (cond
@@ -116,12 +116,13 @@
                   nil infinity true])
 
     ; If we hit the iterative-deepening limit, we cache and return:
-    ;   score   1
+    ;   score   (heuristic)
     ;   move    nil
     ;   depth   0
     ;   exact   true
     (zero? depth)
-    (put-through @cache current-state [minimax-bottom-value nil 0 true])
+    (put-through @cache current-state
+                 [(@heuristic state-machine current-state @our-role) nil 0 true])
 
     ; Otherwise we need to search further down the tree.  Find the result, cache
     ; it, and return it.
@@ -253,6 +254,7 @@
   (reset! all-roles (get-minimax-roles gamer))
   (reset! previous-expected-value -1)
   (reset! cache-hits 0)
+  (reset! heuristic heur/mobility)
   (select-move gamer end-time)
   )
 
