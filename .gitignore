@@ -4,3 +4,5 @@
 /.gradle/
 /build/
 /out/
+
+debug.log

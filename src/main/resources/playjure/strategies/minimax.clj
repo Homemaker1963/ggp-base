@@ -16,6 +16,25 @@
 (def cache-hits (atom nil))
 (def previous-expected-value (atom nil))
 (def heuristic (atom nil))
+(def debug (= (System/getenv "DEBUG") "1"))
+(def debug-log "debug.log")
+(def ^:dynamic *indent* 0)
+
+(defn stringify [v]
+  ; oh my god clojure
+  (binding [*print-readably* nil] (pr-str v)))
+
+(defn print-indented [& args]
+  (when debug
+    (let [indent (apply str (repeat *indent* "    "))
+          content (apply str indent (map stringify args))
+          line (str content \newline)]
+      (spit debug-log line :append true))))
+
+(defmacro inc-indent [& body]
+  `(binding [*indent* (inc *indent*)]
+     ~@body))
+
 
 (defn safe-inc [n]
   (cond
@@ -25,6 +44,10 @@
 
 (defn create-joint-move [choices]
   (map choices @original-roles))
+
+(defn die-if-interrupted []
+  (when (thread-interrupted)
+    (throw+ {:type :thread-interrupted})))
 
 
 (declare minimax-search)
@@ -36,7 +59,11 @@
     (and cached
          (<= depth cache-depth)
          (or cache-exact
-             (<= bound cache-score)))))
+             (<= bound cache-score)
+             )
+         ))
+  false
+  )
 
 (defn put-through [^LoadingCache cache state result]
   (.put cache state result)
@@ -44,7 +71,8 @@
 
 
 (defn process-moves [moves make-move
-                     [within-bounds update-best update-bounds :as role-info]
+                     [role-name within-bounds update-best update-bounds
+                      :as role-info]
                      depth initial-bounds]
   (loop [move (first moves)
          moves (rest moves)
@@ -58,24 +86,40 @@
       ;
       ;   1. This node is exact, because we exhausted all the moves.
       ;   2. The depth is the minimum of all the child depths.
-      (let [[best-score best-move best-depth best-exact] best]
-        [best-score best-move (apply min child-depths) true])
+      (let [[best-score best-move best-depth best-exact] best
+            result [best-score best-move (apply min child-depths) true]]
+        (print-indented "Exhaustively searched moves for " role-name
+                        ", best result: " (map str result))
+        result)
 
       ; Otherwise we process another move.
-      (let [[score move child-depth exact :as result] (make-move move bounds)]
-        (if (not (within-bounds score bounds))
-          [score move child-depth false]
-          (let [new-best (update-best result best)
-                new-bounds (update-bounds bounds new-best)]
-            (recur (first moves)
-                   (rest moves)
-                   new-best
-                   (conj child-depths child-depth)
-                   new-bounds)))))))
+      (do
+        (print-indented "Next move to try for " role-name " is " (str move)
+                        ", current best: " (map str best)
+                        ", current bounds: " bounds)
+        (let [[score move child-depth exact :as result] (make-move move bounds)]
+          (if (not (within-bounds score bounds))
+            (let [return-depth (apply min (conj child-depths child-depth))
+                  return [score move return-depth false]]
+              (print-indented "Move had score of " score
+                              " which was not within bounds " bounds
+                              ".  Pruning and returning result: " (map str return))
+              return)
+            (let [new-best (update-best result best)
+                  new-bounds (update-bounds bounds new-best)]
+              (print-indented "Got result of " (map str result)
+                              " but couldn't prune with score " (first result)
+                              " for " role-name
+                              " against " bounds
+                              ".  Continuing...")
+              (recur (first moves)
+                     (rest moves)
+                     new-best
+                     (conj child-depths child-depth)
+                     new-bounds))))))))
 
 (defn minimax-turn [state-machine current-state choices turn-roles depth bounds]
-  (when (thread-interrupted)
-    (throw+ {:type :thread-interrupted}))
+  (die-if-interrupted)
   (cond
     (empty? turn-roles)
     (minimax-search state-machine
@@ -89,31 +133,37 @@
           moves (.getLegalMoves state-machine current-state role)
           make-move (fn [move bounds]
                       (let [[value _ child-depth exact]
-                            (minimax-turn state-machine
-                                          current-state
-                                          (assoc choices role move)
-                                          remaining-roles
-                                          depth
-                                          bounds)]
+                            (inc-indent
+                              (minimax-turn state-machine
+                                            current-state
+                                            (assoc choices role move)
+                                            remaining-roles
+                                            depth
+                                            bounds))]
                         [value move child-depth exact]))]
+      (print-indented "Searching node " (str role) " as " (str (first role-info)))
       (process-moves moves make-move role-info depth bounds))))
 
 (defn minimax-search [state-machine current-state depth [_ max-bound :as bounds]]
-  (when (thread-interrupted)
-    (throw+ {:type :thread-interrupted}))
+  (die-if-interrupted)
+  (print-indented "Searching state >>>" (str current-state) "<<< to depth " depth)
   (cond
     ; If we can use the cache here, go ahead and do it.
     (can-use-cache @cache current-state depth max-bound)
-    (do
+    (let [result (.get @cache current-state)]
+      (print-indented "Using cached value: " (map str result))
       (swap! cache-hits inc)
-      (.get @cache current-state))
+      result)
 
     ; If we've hit a terminal state, we can put it in the cache with an infinite
     ; depth and we're done.
     (.isTerminal state-machine current-state)
-    (put-through @cache current-state
-                 [(.getGoal state-machine current-state @our-role)
-                  nil infinity true])
+    (let [result (put-through @cache current-state
+                              [(.getGoal state-machine current-state @our-role)
+                               nil infinity true])]
+      (print-indented "Found a terminal state, returning: " (map str result))
+      result)
+
 
     ; If we hit the iterative-deepening limit, we cache and return:
     ;   score   (heuristic)
@@ -121,54 +171,70 @@
     ;   depth   0
     ;   exact   true
     (zero? depth)
-    (put-through @cache current-state
-                 [(@heuristic state-machine current-state @our-role) nil 0 true])
+    (let [result (put-through @cache current-state
+                              [(@heuristic state-machine current-state @our-role)
+                               nil 0 true])]
+      (print-indented "Hit the ID depth limit, returning: " (map str result))
+      result)
 
     ; Otherwise we need to search further down the tree.  Find the result, cache
     ; it, and return it.
     :else
-    (let [[score move child-depth exact] (minimax-turn state-machine
-                                                       current-state
-                                                       {}
-                                                       @all-roles
-                                                       (dec depth)
-                                                       bounds)]
-      (put-through @cache current-state
-                   [score move (safe-inc child-depth) exact]))))
+    (let [[score move child-depth exact]
+          (inc-indent (minimax-turn state-machine
+                                    current-state
+                                    {}
+                                    @all-roles
+                                    (dec depth)
+                                    bounds))
+          result (put-through @cache current-state
+                              [score move (safe-inc child-depth) exact])]
+      (print-indented "Passing result back up: " (map str result))
+      result)))
 
 
 (defn iterate-minimax [state-machine starting-state]
   (try+
     (loop [depth 1]
-      (do
-        (println "Searching depth" depth)
-        (let [[score move result-depth exact :as result]
-              (minimax-search state-machine
-                              starting-state
-                              depth
-                              [-infinity infinity])]
-          (dosync (reset! next-move result))
+      (reset! cache (fresh-cache))
+      (println "Searching depth" depth)
+      (print-indented "\n\nSearching depth: " depth)
 
-          (println "    Best move:" (str move))
-          (println "    Expected value:" score)
-          (println "    Depth of result:" result-depth)
-          (println "    Exact result:" exact)
-          (println "    Cache hits:" @cache-hits)
-          (println "    Approx. cache size:" (.size @cache))
+      (let [[score move result-depth exact :as result]
+            (inc-indent (minimax-search state-machine
+                                        starting-state
+                                        depth
+                                        [-infinity infinity]))]
+        (dosync (reset! next-move result))
 
-          (cond
-            (and exact (= infinity result-depth))
-            (do
-              (reset! finished-searching true)
-              (println "Finished searching the entire tree, we're done here."))
+        (println "    Best move:" (str move))
+        (println "    Expected value:" score)
+        (println "    Depth of result:" result-depth)
+        (println "    Exact result:" exact)
+        (println "    Cache hits:" @cache-hits)
+        (println "    Approx. cache size:" (.size @cache))
 
-            ; (= 100 score)
-            ; (do
-            ;   (reset! finished-searching true)
-            ;   (println "Found an ideal move, no need to search further."))
+        (print-indented "Best move: " (str move))
+        (print-indented "Expected value: " score)
+        (print-indented "Depth of result: " result-depth)
+        (print-indented "Exact result: " exact)
+        (print-indented "Cache hits: " @cache-hits)
+        (print-indented "Approx. cache size: " (.size @cache))
 
-            :else
-            (recur (inc depth))))))
+        (cond
+          (and exact (= infinity result-depth))
+          (do
+            (reset! finished-searching true)
+            (println "Finished searching the entire tree, we're done here.")
+            (print-indented "Finished searching the entire tree, we're done here."))
+
+          ; (= 100 score)
+          ; (do
+          ;   (reset! finished-searching true)
+          ;   (println "Found an ideal move, no need to search further."))
+
+          :else
+          (recur (inc depth)))))
     (catch [:type :thread-interrupted] _
       (println "Time ran out as we were searching."))))
 
@@ -208,8 +274,8 @@
   (let [roles (-> gamer .getStateMachine .getRoles)
         our-role (.getRole gamer)
         other-roles (remove #(= our-role %) roles)]
-    (into [[our-role within-bounds-max update-best-max update-bounds-max]]
-          (map #(vector % within-bounds-min update-best-min update-bounds-min)
+    (into [[our-role :max within-bounds-max update-best-max update-bounds-max]]
+          (map #(vector % :min within-bounds-min update-best-min update-bounds-min)
                other-roles))))
 
 
@@ -248,13 +314,14 @@
 
 
 (defn start-game [^StateMachineGamer gamer end-time]
+  (when debug (spit debug-log ""))
   (reset! cache (fresh-cache))
   (reset! our-role (.getRole gamer))
   (reset! original-roles (-> gamer .getStateMachine .getRoles))
   (reset! all-roles (get-minimax-roles gamer))
   (reset! previous-expected-value -1)
   (reset! cache-hits 0)
-  (reset! heuristic heur/mobility)
+  (reset! heuristic heur/static)
   (select-move gamer end-time)
   )
 
