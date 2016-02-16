@@ -1,0 +1,92 @@
+; Simpler tic tac toe (plus)
+;
+; You play it on a single line:
+;  __ __ __ __ __
+; |  |  |  |  |  |
+;  -- -- -- -- --
+;
+; Try to get three in a row.
+
+; Setup {{{
+(role x)
+(role o)
+
+(init (cell 1 _))
+(init (cell 2 _))
+(init (cell 3 _))
+(init (cell 4 _))
+(init (cell 5 _))
+(init (control x))
+
+; }}}
+; Moves {{{
+(<= (legal x (mark ?n x))
+  (true (control x))
+  (true (cell ?n _)))
+
+(<= (legal o (mark ?n o))
+  (true (control o))
+  (true (cell ?n _)))
+
+(<= (legal x noop) (true (control o)))
+(<= (legal o noop) (true (control x)))
+
+; }}}
+; State {{{
+(<= (next (cell ?n ?val))
+  (true (cell ?n ?val))
+  (distinct ?val _))
+
+(<= (next (cell ?n _))
+  (does ?role (mark ?target ?role))
+  (true (cell ?n _))
+  (distinct ?n ?target))
+
+(<= (next (cell ?n ?role))
+  (does ?role (mark ?n ?role)))
+
+(<= (next (control x)) (true (control o)))
+(<= (next (control o)) (true (control x)))
+
+; }}}
+; Ending {{{
+(<= terminal
+  (true (cell 1 ?a))
+  (true (cell 2 ?b))
+  (true (cell 3 ?c))
+  (true (cell 4 ?d))
+  (distinct ?a _)
+  (distinct ?b _)
+  (distinct ?c _)
+  (distinct ?d _))
+
+; }}}
+; Goals {{{
+(<= (line ?role)
+  (true (cell 1 ?role))
+  (true (cell 2 ?role))
+  (true (cell 3 ?role)))
+
+(<= (line ?role)
+  (true (cell 2 ?role))
+  (true (cell 3 ?role))
+  (true (cell 4 ?role)))
+
+(<= (line ?role)
+  (true (cell 3 ?role))
+  (true (cell 4 ?role))
+  (true (cell 5 ?role)))
+
+(<= some-line
+  (line ?role))
+
+(<= (goal x 100) (line x))
+(<= (goal o 100) (line o))
+
+(<= (goal x 0) (line o))
+(<= (goal o 0) (line x))
+
+(<= (goal x 50) (not some-line))
+(<= (goal o 50) (not some-line))
+
+; }}}
