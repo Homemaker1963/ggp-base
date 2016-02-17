@@ -1,4 +1,6 @@
 (ns playjure.utils
+  (:require
+    [slingshot.slingshot :refer [try+ throw+]])
   (:import
     [com.google.common.cache CacheBuilder]
     [com.google.common.cache CacheLoader]))
@@ -16,8 +18,14 @@
     ; Otherwise just cancel it.
     (future-cancel f)))
 
+
 (defn thread-interrupted []
   (.isInterrupted (Thread/currentThread)))
+
+(defn die-when-interrupted []
+  (when (thread-interrupted)
+    (throw+ {:type :thread-interrupted})))
+
 
 (defn fresh-cache []
   (-> (CacheBuilder/newBuilder)
@@ -33,3 +41,24 @@
 
 (defn third [coll]
   (nth coll 2))
+
+
+
+(def ^:dynamic *indent* 0)
+(def shut-up true)
+
+(defmacro inc-indent [& body]
+  `(binding [*indent* (inc *indent*)]
+     ~@body))
+
+(defn stringify [v]
+  ; oh my god clojure
+  (binding [*print-readably* nil] (pr-str v)))
+
+(defn print-indented [& args]
+  (when-not shut-up
+    (let [indent (apply str (repeat *indent* "    "))
+          content (apply str indent (map stringify args))]
+      (println content))))
+
+
