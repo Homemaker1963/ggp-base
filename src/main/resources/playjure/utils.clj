@@ -62,3 +62,8 @@
       (println content))))
 
 
+(defmacro with-result [name expr & body]
+  `(let [~name ~expr]
+     ~@body
+     ~name))
+
