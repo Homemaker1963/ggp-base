@@ -2,6 +2,7 @@
   (:require
     [slingshot.slingshot :refer [try+ throw+]])
   (:import
+    [com.google.common.cache LoadingCache]
     [com.google.common.cache CacheBuilder]
     [com.google.common.cache CacheLoader]))
 
@@ -66,4 +67,14 @@
   `(let [~name ~expr]
      ~@body
      ~name))
+
+(defn put-through [^LoadingCache cache state result]
+  (.put cache state result)
+  result)
+
+(defn safe-inc [n]
+  (cond
+    (nil? n) nil
+    (= infinity n) infinity
+    :else (inc n)))
 

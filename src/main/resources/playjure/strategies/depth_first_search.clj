@@ -1,5 +1,6 @@
 (ns playjure.strategies.depth-first-search
   (:require [com.climate.claypoole :as clay]
+            [slingshot.slingshot :refer [try+ throw+]]
             [playjure.utils :refer :all]
             [playjure.heuristics :as heur])
   (:import
@@ -8,17 +9,14 @@
     [com.google.common.cache LoadingCache]))
 
 
-(def solution (atom nil))
 (def heuristic (atom nil))
+(def next-move (atom nil))
+(def cache (atom nil))
+(def our-role (atom nil))
+(def finished-searching (atom nil))
+(def current-gamer (atom nil))
 
 (defrecord DfsNode [role state-machine current-state])
-
-(defn swap-solution [[old-score _ :as old-solution]
-                     [new-score _ :as new-solution]]
-  (if (< old-score new-score)
-    new-solution
-    old-solution))
-
 
 (defn is-terminal [{:keys [role
                            ^CachedStateMachine state-machine
@@ -50,77 +48,110 @@
                   :as node} move]
   (.getNextState state-machine current-state [move]))
 
-(defn pick-random-move [^StateMachineGamer gamer]
-  (rand-nth (.getLegalMoves (.getStateMachine gamer)
-                            (.getCurrentState gamer)
-                            (.getRole gamer))))
 
+(defn pick-best [[old-score old-depth old-move :as old-result]
+                 [new-score new-depth new-move :as new-result]]
+  (cond
+    (nil? old-result) new-result
+    (> new-score old-score) [new-score (min old-depth new-depth) new-move]
+    :else [old-score (min old-depth new-depth) old-move]))
 
-(defmacro when-not-cached [^LoadingCache cache state & body]
-  `(let [^LoadingCache cache# ~cache
-         state# ~state]
-     (when-not (.getIfPresent cache# state#)
-       (.put cache# state# true)
-       ~@body)))
-
-
-(defn dfs-full [node path cache depth threadpool]
-  (when-not-cached
-    cache (:current-state node)
+(defn choose-child [children]
+  (loop [[best-score best-depth :as best-child] nil
+         [[score depth move :as child] & children] children]
     (cond
-      (thread-interrupted) nil
-      (is-terminal node) (dosync (swap! solution swap-solution
-                                        [(state-value node) path]))
-      (zero? depth) nil
+      (nil? child)
+      best-child
+
+      (= score 100)
+      child
 
       :else
-      (dorun
-        ((if threadpool (partial clay/upmap threadpool) map)
-         (fn [move]
-           (dfs-full (assoc node :current-state (make-move node move))
-                     (conj path move)
-                     cache
-                     (dec depth)
-                     nil))
-         (get-moves node))))))
+      (recur (pick-best best-child child)
+             children))))
+
+
+(defn dfs-full [node depth threadpool]
+  (die-when-interrupted)
+  (let [current-state (:current-state node)
+
+        [cached-value cached-depth cached-move :as cached]
+        (.getIfPresent @cache current-state)]
+    (if (and cached (<= depth cached-depth))
+      cached
+      (cond
+        (is-terminal node)
+        (put-through @cache current-state
+          [(state-value node) infinity nil])
+
+        (zero? depth)
+        (put-through @cache current-state
+          [(@heuristic @current-gamer current-state @our-role) 0 nil])
+
+        :else
+        (let [children
+              ((if threadpool (partial clay/upmap threadpool) map)
+               (fn [move]
+                 (let [[child-value child-depth child-move]
+                       (dfs-full (assoc node :current-state
+                                        (make-move node move))
+                                 (dec depth)
+                                 nil)]
+                   [child-value (safe-inc child-depth) move]))
+               (get-moves node))]
+          (put-through @cache current-state
+            (choose-child children)))))))
 
 (defn iterative-deepening-dfs [start-node threadpool]
-  (loop [depth 1]
-    (when-not (thread-interrupted)
+  (try+
+    (loop [depth 1]
+      (die-when-interrupted)
       (println "Searching depth" depth)
-      (dfs-full start-node [] (fresh-cache) depth threadpool)
-      (let [[score _] @solution]
-        (when-not (= 100 score)
-          (recur (inc depth))))))
+      (let [[result-score result-depth result-move :as result]
+            (dfs-full start-node depth threadpool)]
+        (reset! next-move result)
+        (println "    Best move:" (str result-move))
+        (println "    Expected value:" result-score)
+        (println "    Depth of result:" result-depth)
+        (println "    Approx. cache size:" (.size @cache))
+        (if-not (or (= infinity result-depth)
+                    (= result-score 100))
+          (recur (inc depth))
+          (do
+            (reset! finished-searching true)
+            (println "Finished searching the entire tree, we're done here.")))))
+    (catch [:type :thread-interrupted] _
+      (println "Time ran out as we were searching.")))
   true)
 
-
-(defn start-game [^StateMachineGamer gamer end-time]
-  (reset! solution [-1 []])
-  (reset! heuristic heur/static)
+(defn select-move [gamer end-time]
+  (reset! next-move nil)
+  (reset! finished-searching false)
   (letfn [(time-left [end-time]
             (- end-time (System/currentTimeMillis)))
-          (done-searching []
-            (let [[score _] @solution]
-              (= score 100)))]
+          (wait-til-done []
+            (when (and (> (time-left end-time) response-cutoff)
+                       (not @finished-searching))
+              (Thread/sleep check-interval)
+              (recur)))]
     (clay/with-shutdown! [threadpool (clay/threadpool (clay/ncpus))]
       (let [start-node (->DfsNode (.getRole gamer)
                                   (.getStateMachine gamer)
                                   (.getCurrentState gamer))
             worker (future (iterative-deepening-dfs start-node threadpool))]
-        (loop []
-          (when (and (> (time-left end-time) response-cutoff)
-                     (not (done-searching))
-                     (nil? (deref worker check-interval nil)))
-            (recur)))
-        (future-cancel-sanely worker)))))
+        (wait-til-done)
+        (future-cancel-sanely worker)
+        (let [[score _ move] @next-move]
+          (println "Choosing:" (str move) "with expected value" score)
+          move)))))
 
-(defn select-move [gamer timeout]
-  (dosync
-    (let [[value path] @solution]
-      (if (empty? path)
-        (pick-random-move gamer)
-        (let [[next-move & remaining-moves] path]
-          (reset! solution [value remaining-moves])
-          next-move)))))
 
+(defn start-game [^StateMachineGamer gamer end-time]
+  (reset! cache (fresh-cache))
+  (reset! heuristic heur/goal-distance)
+  (reset! current-gamer gamer)
+  (reset! our-role (.getRole gamer))
+  (select-move gamer end-time))
+
+
+; vim: lw+=put-through :

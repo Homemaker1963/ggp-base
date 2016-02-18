@@ -4,12 +4,13 @@
     [org.ggp.base.util.prover.aima.substituter Substituter]
     [org.ggp.base.util.prover.aima.unifier Unifier]
     [org.ggp.base.util.prover.aima.knowledge KnowledgeBase]
+    [org.ggp.base.util.gdl.grammar GdlDistinct GdlNot GdlOr]
     [org.ggp.base.util.gdl.grammar GdlPool]))
 
 
-(defn count-moves [gamer role]
+(defn count-moves [gamer state role]
   (count (.getLegalMoves (.getStateMachine gamer)
-                         (.getCurrentState gamer)
+                         state 
                          role)))
 
 
@@ -19,14 +20,14 @@
 
 
 ; Simple ----------------------------------------------------------------------
-(defn static [gamer role]
+(defn static [gamer state role]
   1)
 
-(defn inverse-mobility [gamer role]
-  (int (/ 50 (count-moves gamer role))))
+(defn inverse-mobility [gamer state role]
+  (float (/ 30 (count-moves gamer state role))))
 
-(defn mobility [gamer role]
-  (- 51 (inverse-mobility gamer role)))
+(defn mobility [gamer state role]
+  (- 31 (inverse-mobility gamer state role)))
 
 
 (defn mix [& heuristics]
@@ -39,6 +40,8 @@
 ; Goal Distance ---------------------------------------------------------------
 (def goal-expansion-limit 3)
 (def fuzziness 0.75)
+(def fuzzy-true fuzziness)
+(def fuzzy-false (- 1 fuzziness))
 (def bravery 50)
 
 (defn make-knowledge-base [gamer]
@@ -92,8 +95,8 @@
 (defn score-element-true [gamer state knowledge-base el]
   (with-result result
     (if (contains? (.getContents state) el)
-      fuzziness
-      (- 1 fuzziness))
+      fuzzy-true
+      fuzzy-false)
     (print-indented "Scoring " (str el) " as " result)))
 
 (defn score-element-zeroed [gamer state knowledge-base el]
@@ -112,11 +115,27 @@
                          new-goals)]
     (apply combine-disjunction goal-scores)))
 
+(defn score-element-distinct [el]
+  (if (.isGround el)
+    (if (= (.getArg1 el)
+           (.getArg2 el))
+      fuzzy-false
+      fuzzy-true)
+    0.5))
 
 (defn score-element [gamer state knowledge-base depth el]
   (print-indented "Scoring element: " (str el))
   (with-result result
     (cond
+      (instance? GdlDistinct el)
+      (score-element-distinct el)
+
+      (instance? GdlNot el)
+      0.5
+
+      (instance? GdlOr el)
+      0.5
+
       (= GdlPool/TRUE (.getName el))
       (score-element-true gamer state knowledge-base el)
 

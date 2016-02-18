@@ -33,12 +33,6 @@
       (spit debug-log line :append true))))
 
 
-(defn safe-inc [n]
-  (cond
-    (nil? n) nil
-    (= infinity n) infinity
-    :else (inc n)))
-
 (defn create-joint-move [choices]
   (map choices @original-roles))
 
@@ -60,10 +54,6 @@
     (if (>= new-min new-max)
       (throw+ {:type :gtfo :cached cached})
       new-bounds)))
-
-(defn put-through [^LoadingCache cache state result]
-  (.put cache state result)
-  result)
 
 
 (defn process-moves [moves make-move
@@ -207,7 +197,7 @@
                                             starting-state
                                             depth
                                             [-infinity infinity]))]
-        (dosync (reset! next-move result))
+        (reset! next-move result)
 
         (println "    Best move:" (str move))
         (println "    Expected value:" score)
@@ -300,14 +290,13 @@
         (println "Previous expected value: " @previous-expected-value)
         (when (< score @previous-expected-value)
           (println "
-
-                   #######  ##     ##     ######  ##     ## #### ########
+                    #######  ##     ##     ######  ##     ## #### ########
                    ##     ## ##     ##    ##    ## ##     ##  ##     ##
                    ##     ## ##     ##    ##       ##     ##  ##     ##
                    ##     ## #########     ######  #########  ##     ##
                    ##     ## ##     ##          ## ##     ##  ##     ##
                    ##     ## ##     ##    ##    ## ##     ##  ##     ##
-                   #######  ##     ##     ######  ##     ## ####    ##
+                    #######  ##     ##     ######  ##     ## ####    ##
                    "))
         (println "Choosing:" (str move) "with expected value" score)
         (reset! previous-expected-value score)
@@ -323,7 +312,7 @@
   (reset! all-roles (get-minimax-roles gamer))
   (reset! previous-expected-value -1)
   (reset! cache-hits 0)
-  (reset! heuristic (heur/mix heur/goal-distance))
+  (reset! heuristic heur/inverse-mobility)
   (select-move gamer end-time)
   )
 
