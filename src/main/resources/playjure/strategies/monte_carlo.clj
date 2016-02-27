@@ -1,5 +1,6 @@
 (ns playjure.strategies.monte-carlo
-  (:require [clojure.core.match :refer [match]]
+  (:require [playjure.utils :refer :all]
+            [clojure.core.match :refer [match]]
             [clojure.pprint :refer [pprint]])
   (:import
     [org.ggp.base.player.gamer.statemachine StateMachineGamer]))
@@ -41,13 +42,14 @@
     score))
 
 (defn simulate-move [[scores counts]]
-  (let [current-state (get-current-state)
-        move (random-joint-move current-state)
-        our-move (find-move move *our-role*)
-        next-state (make-move current-state move)
-        score (depth-charge next-state)]
-    [(update-scores scores our-move score)
-     (update-counts counts our-move)]))
+  (when-not (thread-interrupted)
+    (let [current-state (get-current-state)
+          move (random-joint-move current-state)
+          our-move (find-move move *our-role*)
+          next-state (make-move current-state move)
+          score (depth-charge next-state)]
+      [(update-scores scores our-move score)
+       (update-counts counts our-move)])))
 
 
 (defn pick-random-move [^StateMachineGamer gamer]
@@ -74,18 +76,30 @@
             *our-role* (.getRole gamer)
             *state-machine* (.getStateMachine gamer)
             *role-indices* (.getRoleIndices (.getStateMachine gamer))]
-    (let [[scores counts] (time (nth (iterate simulate-move [{} {}])
-                                     600))
-          results (calculate-results scores counts)
-          move (choose-move results)]
-      (println "SCORES")
-      (pprint (stringify-map scores))
-      (println "COUNTS")
-      (pprint (stringify-map counts))
-      (println "RESULTS")
-      (pprint (stringify-map results))
-      (println "Choosing move: " (str move))
-      move)))
+    (let [time-left (fn []
+                      (- end-time (System/currentTimeMillis)))
+          wait-til-done (fn []
+                          (when (> (time-left) response-cutoff)
+                            (Thread/sleep check-interval)
+                            (recur)))
+          result (atom nil)
+          worker (future (->> (iterate simulate-move [{} {}])
+                           (take-while identity)
+                           (map #(reset! result %))
+                           dorun))]
+      (wait-til-done)
+      (future-cancel-sanely worker)
+      (let [[scores counts] @result
+            result-map (calculate-results scores counts)
+            move (choose-move result-map)]
+        (println "SCORES")
+        (pprint (stringify-map scores))
+        (println "COUNTS" (apply + (vals counts)))
+        (pprint (stringify-map counts))
+        (println "RESULTS")
+        (pprint (stringify-map result-map))
+        (println "Choosing move: " (str move))
+        move))))
 
 (defn start-game [^StateMachineGamer gamer end-time]
   nil)

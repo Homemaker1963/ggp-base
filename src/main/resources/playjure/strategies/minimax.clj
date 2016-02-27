@@ -274,10 +274,10 @@
 (defn select-move [gamer end-time]
   (reset! next-move nil)
   (reset! finished-searching false)
-  (letfn [(time-left [end-time]
+  (letfn [(time-left []
             (- end-time (System/currentTimeMillis)))
           (wait-til-done []
-            (when (and (> (time-left end-time) response-cutoff)
+            (when (and (> (time-left) response-cutoff)
                        (not @finished-searching))
               (Thread/sleep check-interval)
               (recur)))]
