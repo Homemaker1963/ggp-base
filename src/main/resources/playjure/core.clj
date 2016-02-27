@@ -7,6 +7,7 @@
     [org.ggp.base.util.statemachine.implementation.prover ProverStateMachine]
     [org.ggp.base.util.statemachine.cache CachedStateMachine]))
 
+
 (def single-player-strategy {:start dfs/start-game
                              :move dfs/select-move})
 
