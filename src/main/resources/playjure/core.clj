@@ -1,16 +1,23 @@
 (ns playjure.core
   (:require [playjure.strategies.depth-first-search :as dfs]
-            [playjure.strategies.minimax :as minimax])
+            [playjure.strategies.minimax :as minimax]
+            [playjure.strategies.monte-carlo :as mc])
   (:import
     [org.ggp.base.player.gamer.statemachine StateMachineGamer]
     [org.ggp.base.util.statemachine.implementation.prover ProverStateMachine]
     [org.ggp.base.util.statemachine.cache CachedStateMachine]))
 
+(def single-player-strategy {:start dfs/start-game
+                             :move dfs/select-move})
 
-(defmacro if-single-player [gamer then else]
-  `(if (= 1 (count (-> ~gamer .getStateMachine .getRoles)))
-     ~then
-     ~else))
+(def multiplayer-strategy {:start mc/start-game
+                           :move mc/select-move})
+
+
+(defn select-strategy [gamer]
+  (if (= 1 (count (-> gamer .getStateMachine .getRoles)))
+    single-player-strategy
+    multiplayer-strategy))
 
 
 (defn start-game [^StateMachineGamer gamer timeout]
@@ -40,15 +47,12 @@
    \\  |                  (______)
     \\\\\\)
            ")
-  (if-single-player gamer
-    (dfs/start-game gamer timeout)
-    (minimax/start-game gamer timeout)))
+  ((:start (select-strategy gamer)) gamer timeout))
 
 (defn select-move [^StateMachineGamer gamer timeout]
   (println "\nSelecting a move...")
-  (if-single-player gamer
-    (dfs/select-move gamer timeout)
-    (minimax/select-move gamer timeout)))
+  ((:move (select-strategy gamer)) gamer timeout))
+
 
 (defn stop-game [^StateMachineGamer gamer]
   (println "Game stopping, suggesting GC...")
