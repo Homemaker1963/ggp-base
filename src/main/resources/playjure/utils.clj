@@ -1,6 +1,7 @@
 (ns playjure.utils
   (:require
-    [slingshot.slingshot :refer [try+ throw+]])
+    [slingshot.slingshot :refer [try+ throw+]]
+    [clojure.pprint :refer [pprint]])
   (:import
     [com.google.common.cache LoadingCache]
     [com.google.common.cache CacheBuilder]
@@ -78,3 +79,45 @@
     (= infinity n) infinity
     :else (inc n)))
 
+
+(defmacro log [form]
+  `(do
+     (pprint (quote ~form))
+     (pprint ~form)
+     (println)))
+
+
+(defn time-left [end-time]
+  (- end-time (System/currentTimeMillis)))
+
+(defn wait-til-done [end-time tripwire]
+  (while (and (> (time-left end-time) response-cutoff)
+              (not (tripwire)))
+    (Thread/sleep check-interval)))
+
+
+(defmacro timed-run
+  "Handle the ugly guts of running for 'as long as needed/necessary'.
+
+  end-time
+  The timestamp that we absolutely must end by.
+
+  tripwire-form
+  A single form that, when true, will signal that we should stop running (even
+  if we still have time left).  Just give `nil` to use all available time.
+
+  worker-form
+  A single form that will be executed inside a future.  The future will be
+  (sanely) cancelled when time is up (or the tripwire fires).
+
+  body
+  Any number of forms that will be executed once the time is up.  The worker
+  will have been canceled before this.
+
+  "
+  [end-time tripwire-form worker-form & body]
+  `(let [worker# (future ~worker-form)
+         end-time# ~end-time]
+     (wait-til-done end-time# (fn [] ~tripwire-form))
+     (future-cancel-sanely worker#)
+     ~@body))

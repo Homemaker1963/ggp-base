@@ -271,36 +271,30 @@
                other-roles))))
 
 
+(defn complain []
+  (println "
+   #######  ##     ##     ######  ##     ## #### ########
+  ##     ## ##     ##    ##    ## ##     ##  ##     ##
+  ##     ## ##     ##    ##       ##     ##  ##     ##
+  ##     ## #########     ######  #########  ##     ##
+  ##     ## ##     ##          ## ##     ##  ##     ##
+  ##     ## ##     ##    ##    ## ##     ##  ##     ##
+   #######  ##     ##     ######  ##     ## ####    ##
+           "))
+
+
 (defn select-move [gamer end-time]
   (reset! next-move nil)
   (reset! finished-searching false)
-  (letfn [(time-left []
-            (- end-time (System/currentTimeMillis)))
-          (wait-til-done []
-            (when (and (> (time-left) response-cutoff)
-                       (not @finished-searching))
-              (Thread/sleep check-interval)
-              (recur)))]
-    (let [state-machine (.getStateMachine gamer)
-          starting-state (.getCurrentState gamer)
-          worker (future (iterate-minimax state-machine starting-state))]
-      (wait-til-done)
-      (future-cancel-sanely worker)
-      (let [[score move] @next-move]
-        (println "Previous expected value: " @previous-expected-value)
-        (when (< score @previous-expected-value)
-          (println "
-                    #######  ##     ##     ######  ##     ## #### ########
-                   ##     ## ##     ##    ##    ## ##     ##  ##     ##
-                   ##     ## ##     ##    ##       ##     ##  ##     ##
-                   ##     ## #########     ######  #########  ##     ##
-                   ##     ## ##     ##          ## ##     ##  ##     ##
-                   ##     ## ##     ##    ##    ## ##     ##  ##     ##
-                    #######  ##     ##     ######  ##     ## ####    ##
-                   "))
-        (println "Choosing:" (str move) "with expected value" score)
-        (reset! previous-expected-value score)
-        move))))
+  (timed-run end-time @finished-searching
+    (iterate-minimax (.getStateMachine gamer) (.getCurrentState gamer))
+    (let [[score move] @next-move]
+      (println "Previous expected value: " @previous-expected-value)
+      (when (< score @previous-expected-value)
+        (complain))
+      (println "Choosing:" (str move) "with expected value" score)
+      (reset! previous-expected-value score)
+      move)))
 
 
 (defn start-game [^StateMachineGamer gamer end-time]
@@ -313,6 +307,7 @@
   (reset! previous-expected-value -1)
   (reset! cache-hits 0)
   (reset! heuristic heur/inverse-mobility)
-  (select-move gamer end-time)
-  )
+  (select-move gamer end-time))
 
+
+; vim: lw+=timed-run :

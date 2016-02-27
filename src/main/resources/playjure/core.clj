@@ -1,7 +1,8 @@
 (ns playjure.core
   (:require [playjure.strategies.depth-first-search :as dfs]
             [playjure.strategies.minimax :as minimax]
-            [playjure.strategies.monte-carlo :as mc])
+            [playjure.strategies.monte-carlo :as mc]
+            [playjure.strategies.monte-carlo-tree :as mct])
   (:import
     [org.ggp.base.player.gamer.statemachine StateMachineGamer]
     [org.ggp.base.util.statemachine.implementation.prover ProverStateMachine]
@@ -11,8 +12,8 @@
 (def single-player-strategy {:start dfs/start-game
                              :move dfs/select-move})
 
-(def multiplayer-strategy {:start mc/start-game
-                           :move mc/select-move})
+(def multiplayer-strategy {:start mct/start-game
+                           :move mct/select-move})
 
 
 (defn select-strategy [gamer]

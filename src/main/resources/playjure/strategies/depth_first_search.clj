@@ -127,23 +127,16 @@
 (defn select-move [gamer end-time]
   (reset! next-move nil)
   (reset! finished-searching false)
-  (letfn [(time-left [end-time]
-            (- end-time (System/currentTimeMillis)))
-          (wait-til-done []
-            (when (and (> (time-left end-time) response-cutoff)
-                       (not @finished-searching))
-              (Thread/sleep check-interval)
-              (recur)))]
-    (clay/with-shutdown! [threadpool (clay/threadpool (clay/ncpus))]
-      (let [start-node (->DfsNode (.getRole gamer)
-                                  (.getStateMachine gamer)
-                                  (.getCurrentState gamer))
-            worker (future (iterative-deepening-dfs start-node threadpool))]
-        (wait-til-done)
-        (future-cancel-sanely worker)
-        (let [[score _ move] @next-move]
-          (println "Choosing:" (str move) "with expected value" score)
-          move)))))
+  (clay/with-shutdown! [threadpool (clay/threadpool (clay/ncpus))]
+    (timed-run end-time @finished-searching
+      (iterative-deepening-dfs
+        (->DfsNode (.getRole gamer)
+                   (.getStateMachine gamer)
+                   (.getCurrentState gamer))
+        threadpool)
+      (let [[score _ move] @next-move]
+        (println "Choosing:" (str move) "with expected value" score)
+        move))))
 
 
 (defn start-game [^StateMachineGamer gamer end-time]
@@ -154,4 +147,4 @@
   (select-move gamer end-time))
 
 
-; vim: lw+=put-through :
+; vim: lw+=put-through lw+=timed-run :

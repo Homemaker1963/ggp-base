@@ -76,32 +76,26 @@
             *our-role* (.getRole gamer)
             *state-machine* (.getStateMachine gamer)
             *role-indices* (.getRoleIndices (.getStateMachine gamer))]
-    (let [time-left (fn []
-                      (- end-time (System/currentTimeMillis)))
-          wait-til-done (fn []
-                          (when (> (time-left) response-cutoff)
-                            (Thread/sleep check-interval)
-                            (recur)))
-          result (atom nil)
-          worker (future (->> (iterate simulate-move [{} {}])
-                           (take-while identity)
-                           (map #(reset! result %))
-                           dorun))]
-      (wait-til-done)
-      (future-cancel-sanely worker)
-      (let [[scores counts] @result
-            result-map (calculate-results scores counts)
-            move (choose-move result-map)]
-        (println "SCORES")
-        (pprint (stringify-map scores))
-        (println "COUNTS" (apply + (vals counts)))
-        (pprint (stringify-map counts))
-        (println "RESULTS")
-        (pprint (stringify-map result-map))
-        (println "Choosing move: " (str move))
-        move))))
+    (let [result (atom nil)]
+      (timed-run end-time nil
+        (->> (iterate simulate-move [{} {}])
+          (take-while identity)
+          (map #(reset! result %))
+          dorun)
+        (let [[scores counts] @result
+              result-map (calculate-results scores counts)
+              move (choose-move result-map)]
+          (println "SCORES")
+          (pprint (stringify-map scores))
+          (println "COUNTS" (apply + (vals counts)))
+          (pprint (stringify-map counts))
+          (println "RESULTS")
+          (pprint (stringify-map result-map))
+          (println "Choosing move: " (str move))
+          move)))))
 
 (defn start-game [^StateMachineGamer gamer end-time]
   nil)
 
 
+; vim: lw+=timed-run :
