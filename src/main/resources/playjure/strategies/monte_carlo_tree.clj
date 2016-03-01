@@ -1,7 +1,8 @@
 (ns playjure.strategies.monte-carlo-tree
   (:require [playjure.utils :refer :all]
             [clojure.core.match :refer [match]]
-            [clojure.pprint :refer [pprint]])
+            [clojure.pprint :refer [pprint]]
+            [slingshot.slingshot :refer [try+ throw+]])
   (:import
     [org.ggp.base.player.gamer.statemachine StateMachineGamer]))
 
@@ -11,6 +12,20 @@
 (def ^:dynamic *state-machine* nil)
 (def ^:dynamic *our-role* nil)
 (def ^:dynamic *roles* nil)
+(def tree (atom nil))
+
+; Pretty Printing -------------------------------------------------------------
+(defn mapmap [keyfn valfn m]
+  (into {} (map (fn [[k v]] [(keyfn k) (valfn v)]) m)))
+
+(defn print-node [node]
+  (pprint (-> node
+            (assoc :children "...children...")
+            (update :state str)
+            (update :leading-move str)
+            (update :scores (partial mapmap str (partial mapmap str identity))) ; good god lemon
+            (update :counts (partial mapmap str (partial mapmap str identity))))))
+
 
 ; Move-related Java interop ---------------------------------------------------
 (defn all-joint-moves [state]
@@ -60,11 +75,14 @@
   ([state] (->Node state
                    (get-terminal-results state)
                    nil {} {} 0 nil))
-  ([state move] (->Node (make-move state move)
-                        (get-terminal-results state)
-                        move {} {} 0 nil)))
+  ([state move]
+   (let [new-state (make-move state move)]
+     (->Node
+       new-state
+       (get-terminal-results new-state)
+       move {} {} 0 nil))))
 
-(defn expand-node [{:keys [state] :as node}]
+(defn expand-node [{:keys [state terminal-results] :as node}]
   (assoc node :children
          (set (map #(make-node state %)
                    (all-joint-moves state)))))
@@ -99,9 +117,9 @@
 
 
 (defn search-leaf [node]
-  (let [{:keys [state] :as node} (expand-node node)
+  (let [{:keys [state] :as expanded-node} (expand-node node)
         results (depth-charge state)]
-    [results node]))
+    [results expanded-node]))
 
 (defn search-node
   [{:keys [terminal-results scores counts total-count children] :as node}]
@@ -135,40 +153,47 @@
   (second (search-node root-node)))
 
 
-; Pretty Printing -------------------------------------------------------------
-(defn mapmap [keyfn valfn m]
-  (into {} (map (fn [[k v]] [(keyfn k) (valfn v)]) m)))
-
-(defn print-node [node]
-  (pprint (-> node
-            (assoc :children "...children...")
-            (update :state str)
-            (update :leading-move str)
-            (update :scores (partial mapmap str (partial mapmap str identity))) ; good god lemon
-            (update :counts (partial mapmap str (partial mapmap str identity))))))
-
-
 ; Game ------------------------------------------------------------------------
+(defn init-tree! []
+  (println "Initializing tree...")
+  (reset! tree (make-node (get-current-state))))
+
+(defn update-tree! []
+  (println "Updating tree...")
+  (let [{:keys [children]} @tree
+        current-state (get-current-state)
+        new-root (find-by (partial = current-state)
+                          :state
+                          children)]
+    (if new-root
+      (reset! tree new-root)
+      (throw+ "Couldn't find new root in the tree, something is hosed!"))))
+
+
 (defn select-move [gamer end-time]
   (binding [*gamer* gamer
             *our-role* (.getRole gamer)
             *state-machine* (.getStateMachine gamer)
             *roles* (.getRoles (.getStateMachine gamer))]
-    (let [result (atom nil)]
-      (timed-run end-time nil
-        (->> (make-node (get-current-state))
-          (iterate search-tree)
-          (take-while identity)
-          (map #(reset! result %))
-          dorun)
-        (let [move (choose-move @result)]
-          (println "RESULT")
-          (print-node @result)
-          (println "Choosing move: " (str move))
-          move)))))
+    (if-not @tree
+      (init-tree!)
+      (update-tree!))
+    (println "Searching...")
+    (timed-run end-time nil
+      (->> @tree
+        (iterate search-tree)
+        (take-while identity)
+        (map #(reset! tree %))
+        dorun)
+      (let [move (choose-move @tree)]
+        (println "RESULT")
+        (print-node @tree)
+        (println "Choosing move: " (str move))
+        move))))
 
 (defn start-game [^StateMachineGamer gamer end-time]
   (println "Starting game with Monte-Carlo Tree Search")
+  (reset! tree nil)
   nil)
 
 

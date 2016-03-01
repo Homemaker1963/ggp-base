@@ -121,3 +121,10 @@
      (wait-til-done end-time# (fn [] ~tripwire-form))
      (future-cancel-sanely worker#)
      ~@body))
+
+
+(defn find-by
+  ([pred coll]
+   (find-by pred identity coll))
+  ([pred keyfn coll]
+   (first (filter (comp pred keyfn) coll))))

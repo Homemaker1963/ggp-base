@@ -12,8 +12,9 @@
 (def single-player-strategy {:start dfs/start-game
                              :move dfs/select-move})
 
+
 (def multiplayer-strategy
-  (case  (System/getenv "PLAYJURE_MP_STRAT")
+  (case (System/getenv "PLAYJURE_MP_STRAT")
     "minimax"
     {:start minimax/start-game :move minimax/select-move}
 
