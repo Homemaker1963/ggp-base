@@ -7,6 +7,9 @@
     [org.ggp.base.player.gamer.statemachine StateMachineGamer]))
 
 
+; Configuration ---------------------------------------------------------------
+(def exploration-factor 20)
+
 ; Global State ----------------------------------------------------------------
 (def ^:dynamic *gamer* nil)
 (def ^:dynamic *state-machine* nil)
@@ -19,17 +22,22 @@
   (into {} (map (fn [[k v]] [(keyfn k) (valfn v)]) m)))
 
 (defn print-node [node]
-  (pprint (-> node
-            (assoc :children "...children...")
-            (update :state str)
-            (update :leading-move str)
-            (update :scores (partial mapmap str (partial mapmap str identity))) ; good god lemon
-            (update :counts (partial mapmap str (partial mapmap str identity))))))
+  (if (nil? node)
+    (println "NIL")
+    (pprint (-> node
+              (assoc :children (str "..." (count (:children node)) " children..."))
+              (update :state str)
+              (update :leading-move (partial map str))
+              (update :scores (partial mapmap str (partial mapmap str float))) ; good god lemon
+              (update :counts (partial mapmap str (partial mapmap str identity)))))))
 
 
 ; Move-related Java interop ---------------------------------------------------
 (defn all-joint-moves [state]
   (.getLegalJointMoves *state-machine* state))
+
+(defn get-legal-moves [state role]
+  (.getLegalMoves *state-machine* state role))
 
 (defn get-current-state []
   (.getCurrentState *gamer*))
@@ -51,14 +59,46 @@
 
 
 ; Strategy --------------------------------------------------------------------
-(defn select-child [node]
+(defn select-child-random [node]
   (rand-nth (vec (:children node))))
 
-(defn choose-move [{:keys [scores] :as node}]
+
+(defn- select-child-ucbt-single
+  [{:keys [scores counts total-count] :as node} role]
+  (letfn [(ucbt-value [move]
+            (if (zero? (get-in counts [role move]))
+              infinity
+              (+ (get-in scores [role move])
+                 (* exploration-factor
+                    (Math/sqrt (/ (Math/log total-count)
+                                  (get-in counts [role move])))))))]
+    (let [moves (keys (get scores role))]
+      (first (sort-by ucbt-value > moves)))))
+
+(defn select-child-ucbt [{:keys [children] :as node}]
+  (let [chosen-moves (mapv (partial select-child-ucbt-single node) *roles*)]
+    (find-by (partial = chosen-moves)
+             :leading-move
+             children)))
+
+(defn select-child [node]
+  (select-child-ucbt node))
+
+
+(defn choose-move-score [{:keys [scores] :as node}]
   (->> (get scores *our-role*)
     (sort-by second >)
     first
     first))
+
+(defn choose-move-count [{:keys [counts] :as node}]
+  (->> (get counts *our-role*)
+    (sort-by second >)
+    first
+    first))
+
+(defn choose-move [node]
+  (choose-move-count node))
 
 
 ; MCTS Nodes ------------------------------------------------------------------
@@ -71,16 +111,31 @@
     (scores state)))
 
 
+(defn- make-empty-valmap [state]
+  (into {} (for [role *roles*]
+             [role
+              (into {} (for [move (get-legal-moves state role)]
+                         [move 0]))])))
+
+(defn- actually-make-node [state leading-move]
+  (let [terminal-results (get-terminal-results state)
+        empty-value-map (if terminal-results
+                          {:terminal true}
+                          (make-empty-valmap state))]
+    (->Node
+      state
+      terminal-results
+      leading-move
+      empty-value-map
+      empty-value-map
+      0
+      nil)))
+
 (defn make-node
-  ([state] (->Node state
-                   (get-terminal-results state)
-                   nil {} {} 0 nil))
+  ([state] (actually-make-node state nil))
   ([state move]
    (let [new-state (make-move state move)]
-     (->Node
-       new-state
-       (get-terminal-results new-state)
-       move {} {} 0 nil))))
+     (actually-make-node new-state (vec move)))))
 
 (defn expand-node [{:keys [state terminal-results] :as node}]
   (assoc node :children
@@ -123,10 +178,8 @@
 
 (defn search-node
   [{:keys [terminal-results scores counts total-count children] :as node}]
+  (die-when-interrupted)
   (cond
-    ; If the thread is interrupted, just give up and return nil back.
-    (thread-interrupted) nil
-
     ; If this is a terminal node, we can just return the cached results and this
     ; node itself, unchanged.
     terminal-results [terminal-results node]
@@ -160,14 +213,24 @@
 
 (defn update-tree! []
   (println "Updating tree...")
-  (let [{:keys [children]} @tree
-        current-state (get-current-state)
-        new-root (find-by (partial = current-state)
-                          :state
-                          children)]
-    (if new-root
-      (reset! tree new-root)
-      (throw+ "Couldn't find new root in the tree, something is hosed!"))))
+  (let [{:keys [children state]} @tree
+        current-state (get-current-state)]
+    (if (= current-state state)
+      (println "Skipping tree update, this is (hopefully) the first run...")
+      (let [new-root (find-by (partial = current-state)
+                              :state
+                              children)]
+        (if new-root
+          (reset! tree new-root)
+          (do
+            (print-node @tree)
+            (println "Trying to find state: " (str current-state))
+            (println "Inside the following child states:")
+            (dorun (map #(println "    <" (str (:state %)) ">")
+                        children))
+            (println "Full child nodes:")
+            (dorun (map print-node children))
+            (throw+ "Couldn't find new root in the tree, something is hosed!")))))))
 
 
 (defn select-move [gamer end-time]
@@ -179,21 +242,28 @@
       (init-tree!)
       (update-tree!))
     (println "Searching...")
-    (timed-run end-time nil
-      (->> @tree
-        (iterate search-tree)
-        (take-while identity)
-        (map #(reset! tree %))
-        dorun)
-      (let [move (choose-move @tree)]
-        (println "RESULT")
-        (print-node @tree)
-        (println "Choosing move: " (str move))
-        move))))
+    (println "Starting with")
+    (let [starting-tree @tree]
+      (print-node starting-tree)
+      (timed-run end-time nil
+        (try+ (->> starting-tree
+                (iterate search-tree)
+                (map #(when-not (thread-interrupted)
+                        (reset! tree %)))
+                dorun)
+          (catch [:type :thread-interrupted] _
+            (println "Time ran out as we were searching.")))
+        (let [resulting-tree @tree
+              move (choose-move resulting-tree)]
+          (println "RESULT")
+          (print-node resulting-tree)
+          (println "Choosing move: " (str move))
+          move)))))
 
 (defn start-game [^StateMachineGamer gamer end-time]
   (println "Starting game with Monte-Carlo Tree Search")
   (reset! tree nil)
+  (select-move gamer end-time)
   nil)
 
 
