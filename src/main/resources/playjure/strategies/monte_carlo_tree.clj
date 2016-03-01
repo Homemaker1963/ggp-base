@@ -1,5 +1,6 @@
 (ns playjure.strategies.monte-carlo-tree
   (:require [playjure.utils :refer :all]
+            [playjure.interop :as i]
             [clojure.core.match :refer [match]]
             [clojure.pprint :refer [pprint]]
             [slingshot.slingshot :refer [try+ throw+]])
@@ -30,32 +31,6 @@
               (update :leading-move (partial map str))
               (update :scores (partial mapmap str (partial mapmap str float))) ; good god lemon
               (update :counts (partial mapmap str (partial mapmap str identity)))))))
-
-
-; Move-related Java interop ---------------------------------------------------
-(defn all-joint-moves [state]
-  (.getLegalJointMoves *state-machine* state))
-
-(defn get-legal-moves [state role]
-  (.getLegalMoves *state-machine* state role))
-
-(defn get-current-state []
-  (.getCurrentState *gamer*))
-
-(defn make-move [state joint-move]
-  (.getNextState *state-machine* state joint-move))
-
-(defn scores [state]
-  (let [goal-values (.getGoals *state-machine* state)]
-    (into {} (map vector *roles* goal-values))))
-
-(defn is-terminal [state]
-  (.isTerminal *state-machine* state))
-
-(defn depth-charge [state]
-  (let [result (.performDepthCharge *state-machine* state
-                                    (make-array Integer/TYPE 1))]
-    (scores result)))
 
 
 ; Strategy --------------------------------------------------------------------
@@ -107,14 +82,14 @@
 
 
 (defn get-terminal-results [state]
-  (when (is-terminal state)
-    (scores state)))
+  (when (i/is-terminal *state-machine* state)
+    (i/get-scores *state-machine* state)))
 
 
 (defn- make-empty-valmap [state]
   (into {} (for [role *roles*]
              [role
-              (into {} (for [move (get-legal-moves state role)]
+              (into {} (for [move (i/get-legal-moves *state-machine* state role)]
                          [move 0]))])))
 
 (defn- actually-make-node [state leading-move]
@@ -134,13 +109,13 @@
 (defn make-node
   ([state] (actually-make-node state nil))
   ([state move]
-   (let [new-state (make-move state move)]
+   (let [new-state (i/make-move *state-machine* state move)]
      (actually-make-node new-state (vec move)))))
 
 (defn expand-node [{:keys [state terminal-results] :as node}]
   (assoc node :children
          (set (map #(make-node state %)
-                   (all-joint-moves state)))))
+                   (i/get-all-joint-moves *state-machine* state)))))
 
 
 (defn update-counts [counts moves]
@@ -173,7 +148,7 @@
 
 (defn search-leaf [node]
   (let [{:keys [state] :as expanded-node} (expand-node node)
-        results (depth-charge state)]
+        results (i/depth-charge *state-machine* state)]
     [results expanded-node]))
 
 (defn search-node
@@ -209,12 +184,12 @@
 ; Game ------------------------------------------------------------------------
 (defn init-tree! []
   (println "Initializing tree...")
-  (reset! tree (make-node (get-current-state))))
+  (reset! tree (make-node (i/get-current-state *gamer*))))
 
 (defn update-tree! []
   (println "Updating tree...")
   (let [{:keys [children state]} @tree
-        current-state (get-current-state)]
+        current-state (i/get-current-state *gamer*)]
     (if (= current-state state)
       (println "Skipping tree update, this is (hopefully) the first run...")
       (let [new-root (find-by (partial = current-state)
