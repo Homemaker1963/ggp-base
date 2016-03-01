@@ -168,6 +168,7 @@
           move)))))
 
 (defn start-game [^StateMachineGamer gamer end-time]
+  (println "Starting game with Monte-Carlo Tree Search")
   nil)
 
 

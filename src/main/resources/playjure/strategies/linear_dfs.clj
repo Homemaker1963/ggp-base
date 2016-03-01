@@ -90,6 +90,7 @@
 
 
 (defn start-game [^StateMachineGamer gamer end-time]
+  (println "Starting game with linearized depth-first")
   (reset! solution [-1 []])
   (reset! heuristic heur/static)
   (letfn [(time-left [end-time]

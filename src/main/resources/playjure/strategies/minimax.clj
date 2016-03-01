@@ -298,6 +298,7 @@
 
 
 (defn start-game [^StateMachineGamer gamer end-time]
+  (println "Starting game with minimax with alpha/beta pruning")
   (when debug (spit debug-log ""))
   (reset! current-gamer gamer)
   (reset! cache (fresh-cache))

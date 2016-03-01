@@ -140,6 +140,7 @@
 
 
 (defn start-game [^StateMachineGamer gamer end-time]
+  (println "Starting game with iterative-deepening depth-first search")
   (reset! cache (fresh-cache))
   (reset! heuristic heur/goal-distance)
   (reset! current-gamer gamer)

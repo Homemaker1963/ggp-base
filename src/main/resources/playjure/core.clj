@@ -12,8 +12,19 @@
 (def single-player-strategy {:start dfs/start-game
                              :move dfs/select-move})
 
-(def multiplayer-strategy {:start mct/start-game
-                           :move mct/select-move})
+(def multiplayer-strategy
+  (case  (System/getenv "PLAYJURE_MP_STRAT")
+    "minimax"
+    {:start minimax/start-game :move minimax/select-move}
+
+    "monte-carlo"
+    {:start mc/start-game :move mc/select-move}
+
+    "monte-carlo-tree"
+    {:start mct/start-game :move mct/select-move}
+
+    ; default
+    {:start mct/start-game :move mct/select-move}))
 
 
 (defn select-strategy [gamer]
