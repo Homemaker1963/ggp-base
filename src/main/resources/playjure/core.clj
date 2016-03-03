@@ -9,9 +9,22 @@
     [org.ggp.base.util.statemachine.cache CachedStateMachine]))
 
 
-(def single-player-strategy {:start dfs/start-game
-                             :move dfs/select-move})
+(def single-player-strategy )
 
+
+(def single-player-strategy
+  (case (System/getenv "PLAYJURE_SP_STRAT")
+    "depth-first-search"
+    {:start dfs/start-game :move dfs/select-move}
+
+    "monte-carlo"
+    {:start mc/start-game :move mc/select-move}
+
+    "monte-carlo-tree"
+    {:start mct/start-game :move mct/select-move}
+
+    ; default
+    {:start dfs/start-game :move dfs/select-move}))
 
 (def multiplayer-strategy
   (case (System/getenv "PLAYJURE_MP_STRAT")

@@ -178,3 +178,13 @@
       (let [distance (score-goal gamer state knowledge-base target-goal)]
         (* bravery distance)))))
 
+
+; Selection -------------------------------------------------------------------
+(defn select-heuristic []
+  (case (System/getenv "PLAYJURE_HEURISTIC")
+    "mobility" mobility
+    "inverse-mobility" inverse-mobility
+    "goal-distance" goal-distance
+    "static" static
+    ; default
+    static))

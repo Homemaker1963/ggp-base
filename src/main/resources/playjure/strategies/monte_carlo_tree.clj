@@ -9,7 +9,11 @@
 
 
 ; Configuration ---------------------------------------------------------------
-(def exploration-factor 20)
+(def exploration-factor
+  (if-let [ef (System/getenv "PLAYJURE_MCT_EXPLORE")]
+    (Integer/parseInt ef)
+    40))
+
 
 ; Global State ----------------------------------------------------------------
 (def ^:dynamic *gamer* nil)

@@ -290,7 +290,8 @@
     (iterate-minimax (.getStateMachine gamer) (.getCurrentState gamer))
     (let [[score move] @next-move]
       (println "Previous expected value: " @previous-expected-value)
-      (when (< score @previous-expected-value)
+      (when (and score
+                 (< score @previous-expected-value))
         (complain))
       (println "Choosing:" (str move) "with expected value" score)
       (reset! previous-expected-value score)

@@ -1,0 +1,86 @@
+(role you)
+
+(init (cell 1 1))
+(init (cell 2 1))
+(init (cell 3 1))
+(init (cell 4 1))
+(init (cell 5 1))
+(init (cell 6 1))
+(init (cell 7 1))
+(init (cell 8 1))
+
+(init (step 1))
+
+(<= (next (step ?y))
+  (true (step ?x))
+  (succ ?x ?y))
+
+(succ 1 2)
+(succ 2 3)
+(succ 3 4)
+(succ 4 5)
+(succ 5 6)
+(succ 6 7)
+(succ 7 8)
+
+(<= (legal you (move ?x ?y))
+  (true (cell ?x 1))
+  (true (cell ?y 1))
+  (obama ?x ?y))
+
+(<= (legal you (move ?x ?y))
+  (true (cell ?x 1))
+  (true (cell ?y 1))
+  (obama ?y ?x))
+
+(<= (next (cell ?x 0))
+  (does you (move ?x ?y)))
+
+(<= (next (cell ?y 2))
+  (does you (move ?x ?y)))
+
+(<= (next (cell ?x ?c))
+  (true (cell ?x ?c))
+  (does you (move ?y ?z))
+  (distinct ?x ?y)
+  (distinct ?x ?z))
+
+(<= terminal (not anylegalmove))
+(<= anylegalmove (legal you ?m))
+
+(<= (goal you 100) (true (step 5)))
+(<= (goal you 0) (true (cell ?x 1)))
+
+(<= (clinton ?x ?y)
+  (succ ?x ?y))
+
+(<= (clinton ?x ?y)
+  (succ ?x ?z)
+  (true (cell ?z 0))
+  (clinton ?z ?y))
+
+(<= (bush ?x ?y)
+  (succ ?x ?z)
+  (true (cell ?z 1))
+  (clinton ?z ?y))
+
+(<= (bush ?x ?y)
+  (succ ?x ?z)
+  (true (cell ?z 0))
+  (bush ?z ?y))
+
+
+(<= (obama ?x ?y)
+  (succ ?x ?z)
+  (true (cell ?z 2))
+  (clinton ?z ?y))
+
+(<= (obama ?x ?y)
+  (succ ?x ?z)
+  (true (cell ?z 1))
+  (bush ?z ?y))
+
+(<= (obama ?x ?y)
+  (succ ?x ?z)
+  (true (cell ?z 0))
+  (obama ?z ?y))
