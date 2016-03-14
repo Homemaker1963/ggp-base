@@ -1,13 +1,11 @@
-(ns playjure.interop
-  
-  )
+(ns playjure.interop)
 
 
 (defn get-current-state [gamer]
   (.getCurrentState gamer))
 
 (defn get-all-joint-moves [state-machine state]
-  (.getLegalJointMoves state-machine state))
+  (map vec (.getLegalJointMoves state-machine state)))
 
 (defn get-legal-moves [state-machine state role]
   (.getLegalMoves state-machine state role))

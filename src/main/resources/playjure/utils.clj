@@ -47,7 +47,7 @@
 
 
 (def ^:dynamic *indent* 0)
-(def shut-up true)
+(def shut-up false)
 
 (defmacro inc-indent [& body]
   `(binding [*indent* (inc *indent*)]
@@ -62,6 +62,13 @@
     (let [indent (apply str (repeat *indent* "    "))
           content (apply str indent (map stringify args))]
       (println content))))
+
+
+(defn short-str [v]
+  (if (nil? v)
+    "ITS NIL"
+    (let [s (str v)]
+      (subs s 0 (min (count s) 30)))))
 
 
 (defmacro with-result [name expr & body]
@@ -85,6 +92,11 @@
      (pprint (quote ~form))
      (pprint ~form)
      (println)))
+
+
+(defn wat [v]
+  (println v)
+  v)
 
 
 (defn time-left [end-time]

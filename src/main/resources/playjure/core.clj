@@ -2,7 +2,8 @@
   (:require [playjure.strategies.depth-first-search :as dfs]
             [playjure.strategies.minimax :as minimax]
             [playjure.strategies.monte-carlo :as mc]
-            [playjure.strategies.monte-carlo-tree :as mct])
+            [playjure.strategies.monte-carlo-tree :as mct]
+            [playjure.strategies.monte-carlo-dag :as mcd])
   (:import
     [org.ggp.base.player.gamer.statemachine StateMachineGamer]
     [org.ggp.base.util.statemachine.implementation.prover ProverStateMachine]
@@ -23,6 +24,9 @@
     "monte-carlo-tree"
     {:start mct/start-game :move mct/select-move}
 
+    "monte-carlo-dag"
+    {:start mcd/start-game :move mcd/select-move}
+
     ; default
     {:start dfs/start-game :move dfs/select-move}))
 
@@ -37,8 +41,11 @@
     "monte-carlo-tree"
     {:start mct/start-game :move mct/select-move}
 
+    "monte-carlo-dag"
+    {:start mcd/start-game :move mcd/select-move}
+
     ; default
-    {:start mct/start-game :move mct/select-move}))
+    {:start mcd/start-game :move mcd/select-move}))
 
 
 (defn select-strategy [gamer]
