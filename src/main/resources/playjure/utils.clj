@@ -28,6 +28,9 @@
   (when (thread-interrupted)
     (throw+ {:type :thread-interrupted})))
 
+(defn mapmap [keyfn valfn m]
+  (into {} (map (fn [[k v]] [(keyfn k) (valfn v)]) m)))
+
 
 (defn fresh-cache []
   (-> (CacheBuilder/newBuilder)

@@ -1,5 +1,6 @@
 (ns playjure.core
   (:require [playjure.strategies.depth-first-search :as dfs]
+            [playjure.strategies.propnet-test :as pnt]
             [playjure.strategies.minimax :as minimax]
             [playjure.strategies.monte-carlo :as mc]
             [playjure.strategies.monte-carlo-tree :as mct]
@@ -15,6 +16,9 @@
 
 (def single-player-strategy
   (case (System/getenv "PLAYJURE_SP_STRAT")
+    "propnet-test"
+    {:start pnt/start-game :move pnt/select-move}
+
     "depth-first-search"
     {:start dfs/start-game :move dfs/select-move}
 

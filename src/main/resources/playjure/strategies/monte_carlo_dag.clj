@@ -22,9 +22,6 @@
 (def ^:dynamic *roles* nil)
 
 ; Pretty Printing -------------------------------------------------------------
-(defn mapmap [keyfn valfn m]
-  (into {} (map (fn [[k v]] [(keyfn k) (valfn v)]) m)))
-
 (defn print-node [node]
   (if (nil? node)
     (println "NIL")

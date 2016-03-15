@@ -2,7 +2,7 @@
   (:require [clojure.tools.nrepl.server :as nrepl]
             [playjure.core]))
 
-(set! *warn-on-reflection* true)
+(set! *warn-on-reflection* false)
 
 (defonce nrepl-server
   (when (= "1" (System/getenv "NREPL"))
