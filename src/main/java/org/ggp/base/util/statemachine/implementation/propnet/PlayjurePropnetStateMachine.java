@@ -175,9 +175,6 @@ public class PlayjurePropnetStateMachine extends StateMachine {
 
         for (Component c : propNet.getComponents()) {
             if (c instanceof Transition) {
-                System.out.println();
-                System.out.println(c);
-                System.out.println(c.getSingleInput());
                 prove(c.getSingleInput());
             }
         }
@@ -267,7 +264,6 @@ public class PlayjurePropnetStateMachine extends StateMachine {
 
         if (prop instanceof Proposition) {
             Proposition p = (Proposition)prop;
-            System.out.println(p);
             p.setValue(p.getSingleInput().getValue());
         }
 
