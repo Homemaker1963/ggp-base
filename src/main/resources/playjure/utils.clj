@@ -48,6 +48,11 @@
   (nth coll 2))
 
 
+(defn env-var [var-name default-value]
+  (if-let [value (System/getenv var-name)]
+    value
+    default-value))
+
 
 (def ^:dynamic *indent* 0)
 (def shut-up false)

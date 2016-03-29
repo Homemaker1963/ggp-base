@@ -10,12 +10,17 @@
 
 ; Configuration ---------------------------------------------------------------
 (def exploration-factor
-  (if-let [ef (System/getenv "PLAYJURE_MCT_EXPLORE")]
-    (Integer/parseInt ef)
-    40))
+  (Integer/parseInt
+    (env-var "PLAYJURE_MCD_EXPLORE" "40")))
 
-(def mast-epsilon 0.8)
-(def mast-jitter 4)
+(def mast-epsilon
+  (Double/parseDouble
+    (env-var "PLAYJURE_MCD_MAST_EPSILON" "0.8")))
+
+(def mast-jitter
+  (Integer/parseInt
+    (env-var "PLAYJURE_MCD_MAST_JITTER" "4")))
+
 
 ; Global State ----------------------------------------------------------------
 (def ^:dynamic *gamer* nil)
@@ -342,8 +347,7 @@
       (println "Starting with")
       (println (count starting-dag) "-node DAG")
       (print-node (get starting-dag starting-state))
-      (println "MAST map: " )
-      (pprint (mapmap str identity @mast))
+      (println "MAST size: " (count @mast))
 
       (timed-run end-time nil
         (try+
@@ -360,6 +364,7 @@
               move (choose-move root-node)]
           (println "RESULT")
           (println (count resulting-dag) "-node DAG")
+          (println "OUR ROLE: " (str *our-role*))
           (print-node root-node)
           (println "Choosing move: " (str move))
           move)))))

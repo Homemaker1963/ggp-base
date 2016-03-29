@@ -9,4 +9,5 @@
     (nrepl/start-server :port 7888)))
 
 (defn Playjure [] (playjure.core/make-player))
+(defn Playjure2 [] (playjure.core/make-player))
 
