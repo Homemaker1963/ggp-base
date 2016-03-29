@@ -14,12 +14,30 @@
     (Integer/parseInt ef)
     40))
 
+(def mast-epsilon 0.8)
+(def mast-jitter 4)
 
 ; Global State ----------------------------------------------------------------
 (def ^:dynamic *gamer* nil)
 (def ^:dynamic *state-machine* nil)
 (def ^:dynamic *our-role* nil)
 (def ^:dynamic *roles* nil)
+
+; Utilities -------------------------------------------------------------------
+(defn update-average [old-average old-count new-value]
+  (/ (+ new-value (* old-average old-count))
+     (inc old-count)))
+
+
+(defn- pair-joint-move-roles [joint-move]
+  (map vector *roles* joint-move))
+
+(defn- split-joint-moves [joint-moves]
+  (->> joint-moves
+    (mapcat pair-joint-move-roles)
+    (group-by first)
+    (mapmap identity #(set (map second %)))))
+
 
 ; Pretty Printing -------------------------------------------------------------
 (defn print-node [node]
@@ -94,6 +112,52 @@
   (atom {}))
 
 
+; MAST ------------------------------------------------------------------------
+(def mast
+  "The mapping for MAST of moves -> [average-score count]."
+  (atom {}))
+
+
+(defn update-mast-single [mast move result]
+  (let [[old-average old-count] (get mast move [0.0 0])
+        new-average (update-average old-average old-count result)]
+    (assoc mast move [new-average (inc old-count)])))
+
+(defn update-mast [mast results move]
+  (let [moves (pair-joint-move-roles move)]
+    (loop [mast mast
+           [[role move] & moves] moves]
+      (let [mast (update-mast-single mast move (get results role))]
+        (if (empty? moves)
+          mast
+          (recur mast moves))))))
+
+
+(defn mast-value [mast move]
+  (+ (first (get mast move [100.0 0]))
+     (* (rand) mast-jitter)))
+
+(defn mast-select-move-from [mast moves]
+  (first (sort-by (partial mast-value mast) > moves)))
+
+(defn mast-select-move [mast state]
+  (if (< (rand) mast-epsilon)
+    (let [moves (split-joint-moves (i/get-all-joint-moves *state-machine* state))]
+      (into [] (map (fn [role]
+                      (mast-select-move-from mast (get moves role)))
+                 (i/get-roles *state-machine*))))
+    (.getRandomJointMove *state-machine* state)))
+
+(defn mast-depth-charge [state]
+  (if (i/is-terminal *state-machine* state)
+    (i/get-scores *state-machine* state)
+    (let [move (mast-select-move @mast state)
+          new-state (i/make-move *state-machine* state move)
+          results (mast-depth-charge new-state)]
+      (swap! mast update-mast results move)
+      results)))
+
+
 ; MCDS Nodes ------------------------------------------------------------------
 (defrecord Node
   ; A Node is a single entry in the DAG.
@@ -122,15 +186,6 @@
   ; state.
   [state terminal-results scores counts total-count legal-moves children])
 
-
-(defn- pair-joint-move-roles [joint-move]
-  (map vector *roles* joint-move))
-
-(defn- split-joint-moves [joint-moves]
-  (->> joint-moves
-    (mapcat pair-joint-move-roles)
-    (group-by first)
-    (mapmap identity #(set (map second %)))))
 
 (defn- get-terminal-results [state]
   (when (i/is-terminal *state-machine* state)
@@ -175,9 +230,9 @@
     (if move
       (let [old-average (get-in scores [role move] 0.0)
             simulation-count (get-in counts [role move] 0)
-            new-average (/ (+ (get results role)
-                              (* old-average simulation-count))
-                         (inc simulation-count))]
+            new-average (update-average old-average
+                                        simulation-count
+                                        (get results role))]
         (recur moves roles
                (assoc-in scores [role move] new-average)))
       scores)))
@@ -189,7 +244,7 @@
   (assert (not (contains? dag state)))
   (let [{:keys [terminal-results] :as node} (make-node state)
         results (or terminal-results
-                    (i/depth-charge *state-machine* state))]
+                    (mast-depth-charge state))]
     [results (assoc dag state node)]))
 
 (defn- patch-child [dag {:keys [state] :as node} move]
@@ -235,6 +290,9 @@
       (assert (not (nil? child)))
       (assert (contains? new-dag child))
       (assert (= child (get-in new-dag [state :children move])))
+
+      ; Update MAST
+      (swap! mast update-mast results move)
 
       ; Update the DAG on the way back up the call stack.
       [results new-dag])))
@@ -284,6 +342,8 @@
       (println "Starting with")
       (println (count starting-dag) "-node DAG")
       (print-node (get starting-dag starting-state))
+      (println "MAST map: " )
+      (pprint (mapmap str identity @mast))
 
       (timed-run end-time nil
         (try+
@@ -307,6 +367,7 @@
 (defn start-game [^StateMachineGamer gamer end-time]
   (println "Starting game with Monte-Carlo DAG Search")
   (reset! dag nil)
+  (reset! mast {})
   (select-move gamer end-time)
   nil)
 
