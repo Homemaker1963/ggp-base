@@ -21,6 +21,10 @@
   (Integer/parseInt
     (env-var "PLAYJURE_MCD_MAST_JITTER" "4")))
 
+(def rave-bias
+  (Integer/parseInt
+    (env-var "PLAYJURE_MCD_RAVE_BIAS" "50")))
+
 
 ; Global State ----------------------------------------------------------------
 (def ^:dynamic *gamer* nil)
@@ -53,7 +57,10 @@
               (update :legal-moves (partial mapmap str (partial map str)))
               (update :children (partial mapmap (partial map str) short-str))
               (update :scores (partial mapmap str (partial mapmap str float))) ; good god lemon
-              (update :counts (partial mapmap str (partial mapmap str identity)))))))
+              (update :counts (partial mapmap str (partial mapmap str identity)))
+              (update :rave-scores (partial mapmap str (partial mapmap str float))) ; good god lemon
+              (update :rave-counts (partial mapmap str (partial mapmap str identity)))
+              ))))
 
 
 ; Strategy --------------------------------------------------------------------
@@ -66,18 +73,26 @@
 
 
 (defn- select-child-ucbt-single
-  [{:keys [scores counts total-count legal-moves] :as node} role]
-  (letfn [(ucbt-value [move]
-            (if (zero? (get-in counts [role move] 0))
-              infinity
-              (+ (get-in scores [role move] 0.0)
-                 (* exploration-factor
-                    (Math/sqrt (/ (Math/log total-count)
-                                  (get-in counts [role move])))))))]
-    (let [moves (get legal-moves role)
-          chosen-move (first (sort-by ucbt-value > moves))]
-      (assert (not (nil? chosen-move)))
-      chosen-move)))
+  [{:keys [scores counts total-count rave-scores legal-moves] :as node} role]
+  (let [rave-weight (Math/sqrt
+                      (/ rave-bias
+                         (+ (* 3 total-count)
+                            rave-bias)))]
+    (letfn [(ucbt-value [move]
+              (if (zero? (get-in counts [role move] 0))
+                infinity
+                (let [average-score (get-in scores [role move] 0.0)
+                      rave-score (get-in rave-scores [role move] 0.0)
+                      move-count (get-in counts [role move])]
+                  (+ (* rave-weight rave-score)
+                     (* (- 1 rave-weight) average-score)
+                     (* exploration-factor
+                        (Math/sqrt (/ (Math/log total-count)
+                                      move-count)))))))]
+      (let [moves (get legal-moves role)
+            chosen-move (first (sort-by ucbt-value > moves))]
+        (assert (not (nil? chosen-move)))
+        chosen-move))))
 
 (defn select-child-ucbt [{:keys [children] :as node}]
   (mapv (partial select-child-ucbt-single node) *roles*))
@@ -155,12 +170,12 @@
 
 (defn mast-depth-charge [state]
   (if (i/is-terminal *state-machine* state)
-    (i/get-scores *state-machine* state)
+    [[] (i/get-scores *state-machine* state)]
     (let [move (mast-select-move @mast state)
           new-state (i/make-move *state-machine* state move)
-          results (mast-depth-charge new-state)]
+          [rave-moves results] (mast-depth-charge new-state)]
       (swap! mast update-mast results move)
-      results)))
+      [(conj rave-moves (vec move)) results])))
 
 
 ; MCDS Nodes ------------------------------------------------------------------
@@ -179,6 +194,8 @@
   ;
   ; Not all moves may be listed in the map -- they are only populated as needed.
   ;
+  ; `rave-scores` and `rave-counts` are maps in the same style.
+  ;
   ; `total-count` is the number of times this node has been chosen to be
   ; simulated.
   ;
@@ -189,7 +206,7 @@
   ; start out as nil and are only calculated when they are actually selected for
   ; the first time.  `children` can also be a bare nil if this is a terminal
   ; state.
-  [state terminal-results scores counts total-count legal-moves children])
+  [state terminal-results scores counts total-count rave-scores rave-counts legal-moves children])
 
 
 (defn- get-terminal-results [state]
@@ -207,6 +224,8 @@
       {} ; scores
       {} ; counts
       0 ; total-count
+      {} ; rave-scores
+      {} ; rave-counts
       legal-moves ; legal-moves
       (when joint-moves ; children
         (into {}
@@ -243,14 +262,35 @@
       scores)))
 
 
+(defn update-rave-counts [counts rave-moves]
+  (loop [counts counts
+         [move & moves] rave-moves]
+    (if (nil? move)
+      counts
+      (recur (update-counts counts move)
+             moves))))
+
+(defn update-rave-scores [scores counts rave-moves results]
+  (loop [scores scores
+         [move & moves] rave-moves]
+    (if (nil? move)
+      scores
+      (recur (update-scores scores counts move results)
+             moves))))
+
+
 (defn- search-leaf
   "Expand and search this leaf node of the DAG, returning [results new-dag]."
   [dag state]
   (assert (not (contains? dag state)))
-  (let [{:keys [terminal-results] :as node} (make-node state)
-        results (or terminal-results
-                    (mast-depth-charge state))]
-    [results (assoc dag state node)]))
+  (let [{:keys [terminal-results] :as node}
+        (make-node state)
+
+        [rave-moves results]
+        (if terminal-results
+          [[] terminal-results]
+          (mast-depth-charge state))]
+    [results rave-moves (assoc dag state node)]))
 
 (defn- patch-child [dag {:keys [state] :as node} move]
   (let [child (get-in node [:children move])]
@@ -273,7 +313,7 @@
   ; If this is a terminal node, we can just return the cached results and the
   ; unchanged DAG.
   (if (:terminal-results node)
-    [(:terminal-results node) dag]
+    [(:terminal-results node) [] dag]
 
     ; Otherwise we need to select the next step.
     (let [move (select-child dag node) ; Pick a move to traverse...
@@ -282,14 +322,18 @@
           [dag child] (patch-child dag node move)
 
           ; And search it to get the results.
-          [results dag] (if (contains? dag child)
-                          (inc-indent (search-node dag (get dag child)))
-                          (search-leaf dag child))
+          [results rave-moves dag]
+          (if (contains? dag child)
+            (inc-indent (search-node dag (get dag child)))
+            (search-leaf dag child))
 
           new-dag (-> dag
                     (update-in [state :scores] update-scores
                                (get-in dag [state :counts]) move results)
                     (update-in [state :counts] update-counts move)
+                    (update-in [state :rave-scores] update-rave-scores
+                               (get-in dag [state :rave-counts]) rave-moves results)
+                    (update-in [state :rave-counts] update-rave-counts rave-moves)
                     (update-in [state :total-count] inc))]
 
       (assert (not (nil? child)))
@@ -300,11 +344,11 @@
       (swap! mast update-mast results move)
 
       ; Update the DAG on the way back up the call stack.
-      [results new-dag])))
+      [results (conj rave-moves move) new-dag])))
 
 
 (defn search-dag [dag root-node]
-  (second (search-node dag root-node)))
+  (nth (search-node dag root-node) 2))
 
 
 ; Game ------------------------------------------------------------------------
