@@ -337,7 +337,7 @@
             *state-machine* (.getStateMachine gamer)
             *roles* (.getRoles (.getStateMachine gamer))]
     (println "Updating DAG...")
-    (if @dag
+    (when-not @dag
       (swap! dag prune-dag)
       (init-dag!))
 

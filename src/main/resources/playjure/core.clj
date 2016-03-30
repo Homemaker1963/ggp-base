@@ -4,18 +4,21 @@
             [playjure.strategies.minimax :as minimax]
             [playjure.strategies.monte-carlo :as mc]
             [playjure.strategies.monte-carlo-tree :as mct]
-            [playjure.strategies.monte-carlo-dag :as mcd])
+            [playjure.strategies.monte-carlo-dag :as mcd]
+            [playjure.utils :refer :all]
+            )
   (:import
+    [is.ru.cadia.ggp.propnet BackwardPropNetStateMachine ForwardPropNetStateMachine]
+    [is.ru.cadia.ggp.propnet.structure GGPBasePropNetStructureFactory]
     [org.ggp.base.player.gamer.statemachine StateMachineGamer]
     [org.ggp.base.util.statemachine.implementation.prover ProverStateMachine]
     [org.ggp.base.util.statemachine.cache CachedStateMachine]))
 
 
-(def single-player-strategy )
-
+(def reasoner (env-var "PLAYJURE_REASONER"))
 
 (def single-player-strategy
-  (case (System/getenv "PLAYJURE_SP_STRAT")
+  (case (env-var "PLAYJURE_SP_STRAT")
     "propnet-test"
     {:start pnt/start-game :move pnt/select-move}
 
@@ -35,7 +38,7 @@
     {:start dfs/start-game :move dfs/select-move}))
 
 (def multiplayer-strategy
-  (case (System/getenv "PLAYJURE_MP_STRAT")
+  (case (env-var "PLAYJURE_MP_STRAT")
     "minimax"
     {:start minimax/start-game :move minimax/select-move}
 
@@ -104,7 +107,19 @@
 (defn make-player []
   (proxy [StateMachineGamer] []
     (getInitialStateMachine []
-      (CachedStateMachine. (ProverStateMachine.)))
+      (CachedStateMachine.
+        (case (= reasoner "propnet")
+          "propnet-forward"
+          (new ForwardPropNetStateMachine (new GGPBasePropNetStructureFactory))
+
+          "propnet-backward"
+          (new BackwardPropNetStateMachine (new GGPBasePropNetStructureFactory))
+
+          "prover"
+          (new ProverStateMachine)
+
+          ; default
+          (new BackwardPropNetStateMachine (new GGPBasePropNetStructureFactory)))))
 
     (stateMachineSelectMove [timeout]
       (let [move (select-move this timeout)]

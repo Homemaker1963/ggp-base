@@ -16,6 +16,7 @@ targetCompatibility = 1.7
 dependencies {
     compile 'org.scala-lang:scala-library:2.11.7'
     compile files(
+        'lib/propnet.jar',
         'lib/Guava/guava-14.0.1.jar',
         'lib/Jython/jython.jar',
         'lib/Clojure/clojure.jar',
