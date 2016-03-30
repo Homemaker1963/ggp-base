@@ -23,7 +23,7 @@
 
 (def rave-bias
   (Integer/parseInt
-    (env-var "PLAYJURE_MCD_RAVE_BIAS" "50")))
+    (env-var "PLAYJURE_MCD_RAVE_BIAS" "10")))
 
 
 ; Global State ----------------------------------------------------------------
@@ -58,8 +58,10 @@
               (update :children (partial mapmap (partial map str) short-str))
               (update :scores (partial mapmap str (partial mapmap str float))) ; good god lemon
               (update :counts (partial mapmap str (partial mapmap str identity)))
-              (update :rave-scores (partial mapmap str (partial mapmap str float))) ; good god lemon
-              (update :rave-counts (partial mapmap str (partial mapmap str identity)))
+              (update :rave-scores count)
+              (update :rave-counts count)
+              ; (update :rave-scores (partial mapmap str (partial mapmap str float))) ; good god lemon
+              ; (update :rave-counts (partial mapmap str (partial mapmap str identity)))
               ))))
 
 
@@ -74,10 +76,12 @@
 
 (defn- select-child-ucbt-single
   [{:keys [scores counts total-count rave-scores legal-moves] :as node} role]
-  (let [rave-weight (Math/sqrt
-                      (/ rave-bias
-                         (+ (* 3 total-count)
-                            rave-bias)))]
+  (let [rave-weight (if (zero? total-count)
+                      0
+                      (Math/sqrt
+                        (/ rave-bias
+                           (+ (* 3 total-count)
+                              rave-bias))))]
     (letfn [(ucbt-value [move]
               (if (zero? (get-in counts [role move] 0))
                 infinity
@@ -158,7 +162,11 @@
      (* (rand) mast-jitter)))
 
 (defn mast-select-move-from [mast moves]
-  (first (sort-by (partial mast-value mast) > moves)))
+  (->> moves
+    (map (juxt identity (partial mast-value mast))) ; move -> [move value]
+    (sort-by second >) ; sort by value
+    first ; first result
+    first)) ; pull out the move
 
 (defn mast-select-move [mast state]
   (if (< (rand) mast-epsilon)
